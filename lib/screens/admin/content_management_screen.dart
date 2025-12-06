@@ -2,8 +2,17 @@
 /// 2 tabs: Articles (list artikel dengan edit/delete) dan Catalog (list drugs)
 /// Button: tambah artikel/drug baru, edit, delete dengan konfirmasi
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // for kIsWeb
+import 'package:uuid/uuid.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../services/article_service.dart';
+import '../../services/drug_service.dart';
+import '../../models/article_model.dart';
+import '../../models/drug_model.dart';
 
 class ContentManagementScreen extends StatefulWidget {
   const ContentManagementScreen({super.key});
@@ -14,6 +23,37 @@ class ContentManagementScreen extends StatefulWidget {
 
 class _ContentManagementScreenState extends State<ContentManagementScreen> {
   int _selectedTab = 0;
+  final _articleService = ArticleService();
+  final _drugService = DrugService();
+  List<ArticleModel> _articles = [];
+  List<DrugModel> _drugs = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    try {
+      setState(() => _isLoading = true);
+      final articles = await _articleService.getAllArticles();
+      final drugs = await _drugService.getAllDrugs();
+      setState(() {
+        _articles = articles;
+        _drugs = drugs;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memuat data: $e')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,11 +67,11 @@ class _ContentManagementScreenState extends State<ContentManagementScreen> {
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(_selectedTab == 0 ? 'Tambah Artikel' : 'Tambah Data Katalog'),
-                ),
-              );
+              if (_selectedTab == 0) {
+                _showAddArticleDialog();
+              } else {
+                _showAddDrugDialog();
+              }
             },
           ),
         ],
@@ -54,7 +94,11 @@ class _ContentManagementScreenState extends State<ContentManagementScreen> {
           ),
           // Content
           Expanded(
-            child: _selectedTab == 0 ? _buildArticleList() : _buildCatalogList(),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _selectedTab == 0
+                    ? _buildArticleList()
+                    : _buildCatalogList(),
           ),
         ],
       ),
@@ -88,52 +132,146 @@ class _ContentManagementScreenState extends State<ContentManagementScreen> {
   }
 
   Widget _buildArticleList() {
-    final articles = [
-      {'title': 'Bahaya Narkotika bagi Remaja', 'category': 'Edukasi', 'views': '1.2k'},
-      {'title': 'Cara Menolak Ajakan Narkoba', 'category': 'Tips', 'views': '856'},
-      {'title': 'Dampak Jangka Panjang Narkoba', 'category': 'Edukasi', 'views': '2.1k'},
-      {'title': 'Gejala Awal Ketergantungan', 'category': 'Info', 'views': '945'},
-    ];
+    if (_articles.isEmpty) {
+      return const Center(
+        child: Text('Belum ada artikel'),
+      );
+    }
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: articles.length,
+      itemCount: _articles.length,
       itemBuilder: (context, index) {
-        final article = articles[index];
+        final article = _articles[index];
         return _buildContentCard(
-          article['title']!,
-          article['category']!,
-          article['views']!,
+          article.title,
+          article.category,
+          '${article.readCount} views',
           Icons.article,
+          imageUrl: article.imageUrl,
+          onEdit: () => _showEditArticleDialog(article),
+          onDelete: () => _deleteArticle(article.id),
         );
       },
     );
+  }
+
+  Future<void> _deleteArticle(String id) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus Artikel'),
+        content: const Text('Yakin ingin menghapus artikel ini?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Batal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Hapus', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        print('🔄 Menghapus artikel: $id');
+        await _articleService.deleteArticle(id);
+        print('✅ Artikel berhasil dihapus');
+        await _loadData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Artikel berhasil dihapus')),
+          );
+        }
+      } catch (e) {
+        print('❌ Gagal menghapus artikel: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Gagal menghapus artikel: $e')),
+          );
+        }
+      }
+    }
   }
 
   Widget _buildCatalogList() {
-    final drugs = [
-      {'name': 'Ganja (Marijuana)', 'risk': 'Tinggi', 'category': 'Narkotika'},
-      {'name': 'Kokain', 'risk': 'Tinggi', 'category': 'Narkotika'},
-      {'name': 'Heroin', 'risk': 'Tinggi', 'category': 'Narkotika'},
-      {'name': 'Ekstasi (MDMA)', 'risk': 'Sedang', 'category': 'Psikotropika'},
-    ];
+    if (_drugs.isEmpty) {
+      return const Center(
+        child: Text('Belum ada data katalog'),
+      );
+    }
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: drugs.length,
+      itemCount: _drugs.length,
       itemBuilder: (context, index) {
-        final drug = drugs[index];
+        final drug = _drugs[index];
         return _buildContentCard(
-          drug['name']!,
-          drug['category']!,
-          drug['risk']!,
+          drug.name,
+          drug.category,
+          'Risiko: ${drug.riskLevel}',
           Icons.medication,
+          imageUrl: drug.imageUrl,
+          onEdit: () => _showEditDrugDialog(drug),
+          onDelete: () => _deleteDrug(drug.id),
         );
       },
     );
   }
 
-  Widget _buildContentCard(String title, String category, String info, IconData icon) {
+  Future<void> _deleteDrug(String id) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus Data'),
+        content: const Text('Yakin ingin menghapus data narkotika ini?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Batal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Hapus', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        print('🔄 Menghapus data narkotika: $id');
+        await _drugService.deleteDrug(id);
+        print('✅ Data narkotika berhasil dihapus');
+        await _loadData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Data berhasil dihapus')),
+          );
+        }
+      } catch (e) {
+        print('❌ Gagal menghapus data: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Gagal menghapus data: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  Widget _buildContentCard(
+    String title,
+    String category,
+    String info,
+    IconData icon, {
+    String? imageUrl,
+    VoidCallback? onDelete,
+    VoidCallback? onEdit,
+  }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -150,13 +288,38 @@ class _ContentManagementScreenState extends State<ContentManagementScreen> {
       ),
       child: Row(
         children: [
+          // Image or Icon Thumbnail
           Container(
-            padding: const EdgeInsets.all(8),
+            width: 60,
+            height: 60,
             decoration: BoxDecoration(
               color: AppColors.primary.withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, color: AppColors.primary, size: 24),
+            child: imageUrl != null && imageUrl.isNotEmpty
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Icon(icon, color: AppColors.primary, size: 24);
+                      },
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Center(
+                          child: CircularProgressIndicator(
+                            value: loadingProgress.expectedTotalBytes != null
+                                ? loadingProgress.cumulativeBytesLoaded /
+                                    loadingProgress.expectedTotalBytes!
+                                : null,
+                            strokeWidth: 2,
+                          ),
+                        );
+                      },
+                    ),
+                  )
+                : Icon(icon, color: AppColors.primary, size: 24),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -196,20 +359,827 @@ class _ContentManagementScreenState extends State<ContentManagementScreen> {
               ],
             ),
           ),
-          PopupMenuButton(
-            icon: const Icon(Icons.more_vert),
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 'edit', child: Text('Edit')),
-              const PopupMenuItem(value: 'delete', child: Text('Hapus')),
-            ],
-            onSelected: (value) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('$value: $title')),
-              );
-            },
-          ),
+          if (onDelete != null || onEdit != null)
+            PopupMenuButton(
+              icon: const Icon(Icons.more_vert),
+              itemBuilder: (context) => [
+                const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                const PopupMenuItem(value: 'delete', child: Text('Hapus')),
+              ],
+              onSelected: (value) {
+                if (value == 'delete') {
+                  onDelete?.call();
+                } else if (value == 'edit') {
+                  onEdit?.call();
+                }
+              },
+            )
+          else
+            const Icon(Icons.more_vert, color: AppColors.textLight),
         ],
       ),
+    );
+  }
+
+  void _showAddArticleDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => _ArticleDialog(
+        onSave: (article) async {
+          try {
+            await _articleService.addArticle(article);
+            await _loadData();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Artikel berhasil ditambah')),
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Gagal menambah artikel: $e')),
+              );
+            }
+          }
+        },
+      ),
+    );
+  }
+
+  void _showAddDrugDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => _DrugDialog(
+        onSave: (drug) async {
+          try {
+            await _drugService.addDrug(drug);
+            await _loadData();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Data berhasil ditambah')),
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Gagal menambah data: $e')),
+              );
+            }
+          }
+        },
+      ),
+    );
+  }
+
+  void _showEditArticleDialog(ArticleModel article) {
+    showDialog(
+      context: context,
+      builder: (context) => _ArticleDialog(
+        article: article,
+        onSave: (updatedArticle) async {
+          try {
+            await _articleService.updateArticle(updatedArticle);
+            await _loadData();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Artikel berhasil diupdate')),
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Gagal mengupdate artikel: $e')),
+              );
+            }
+          }
+        },
+      ),
+    );
+  }
+
+  void _showEditDrugDialog(DrugModel drug) {
+    showDialog(
+      context: context,
+      builder: (context) => _DrugDialog(
+        drug: drug,
+        onSave: (updatedDrug) async {
+          try {
+            await _drugService.updateDrug(updatedDrug);
+            await _loadData();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Data berhasil diupdate')),
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Gagal mengupdate data: $e')),
+              );
+            }
+          }
+        },
+      ),
+    );
+  }
+}
+
+// Dialog untuk Tambah/Edit Artikel dengan Image Picker
+class _ArticleDialog extends StatefulWidget {
+  final ArticleModel? article;
+  final Function(ArticleModel) onSave;
+
+  const _ArticleDialog({
+    this.article,
+    required this.onSave,
+  });
+
+  @override
+  State<_ArticleDialog> createState() => _ArticleDialogState();
+}
+
+class _ArticleDialogState extends State<_ArticleDialog> {
+  late TextEditingController _titleController;
+  late TextEditingController _contentController;
+  late TextEditingController _authorController;
+  late TextEditingController _categoryController;
+  late TextEditingController _imageUrlController;
+  
+  String _imageMode = 'url'; // 'url' or 'gallery'
+  XFile? _selectedImage; // Changed to XFile for web compatibility
+  Uint8List? _selectedImageBytes; // For preview
+  final ImagePicker _picker = ImagePicker();
+  final _supabase = Supabase.instance.client;
+  bool _isUploading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.article?.title ?? '');
+    _contentController = TextEditingController(text: widget.article?.content ?? '');
+    _authorController = TextEditingController(text: widget.article?.author ?? '');
+    _categoryController = TextEditingController(text: widget.article?.category ?? '');
+    _imageUrlController = TextEditingController(text: widget.article?.imageUrl ?? '');
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _contentController.dispose();
+    _authorController.dispose();
+    _categoryController.dispose();
+    _imageUrlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickImageFromGallery() async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+      
+      if (image != null) {
+        final bytes = await image.readAsBytes();
+        setState(() {
+          _selectedImage = image;
+          _selectedImageBytes = bytes;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memilih gambar: $e')),
+        );
+      }
+    }
+  }
+
+  Future<String?> _uploadImageToStorage(XFile image, String folder) async {
+    try {
+      final bytes = await image.readAsBytes();
+      String ext = 'jpg';
+      final path = image.path.toLowerCase();
+      
+      if (path.contains('.png')) ext = 'png';
+      else if (path.contains('.webp')) ext = 'webp';
+      
+      final filename = '${const Uuid().v4()}.$ext';
+      final filepath = '$folder/$filename';
+      
+      await _supabase.storage.from('content-images').uploadBinary(
+        filepath,
+        bytes,
+        fileOptions: FileOptions(
+          contentType: ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg',
+          cacheControl: '3600',
+        ),
+      );
+      
+      return _supabase.storage.from('content-images').getPublicUrl(filepath);
+    } catch (e) {
+      print('❌ Upload failed: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.article == null ? 'Tambah Artikel' : 'Edit Artikel'),
+      content: SizedBox(
+        width: 500,
+        child: SingleChildScrollView(
+          child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _titleController,
+              decoration: const InputDecoration(
+                labelText: 'Judul Artikel',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _contentController,
+              decoration: const InputDecoration(
+                labelText: 'Isi Artikel',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 4,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _authorController,
+              decoration: const InputDecoration(
+                labelText: 'Penulis',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _categoryController,
+              decoration: const InputDecoration(
+                labelText: 'Kategori (Edukasi/Berita/Tips)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Image Section
+            Text(
+              'Gambar Artikel',
+              style: AppTextStyles.bodyMedium.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            
+            // Mode Selector
+            Row(
+              children: [
+                Expanded(
+                  child: RadioListTile<String>(
+                    title: const Text('URL', style: TextStyle(fontSize: 14)),
+                    value: 'url',
+                    groupValue: _imageMode,
+                    onChanged: (value) {
+                      setState(() {
+                        _imageMode = value!;
+                        _selectedImage = null;
+                        _selectedImageBytes = null;
+                      });
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: RadioListTile<String>(
+                    title: const Text('Galeri', style: TextStyle(fontSize: 14)),
+                    value: 'gallery',
+                    groupValue: _imageMode,
+                    onChanged: (value) {
+                      setState(() {
+                        _imageMode = value!;
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            
+            // URL Input or Gallery Picker
+            if (_imageMode == 'url') ...[
+              TextField(
+                controller: _imageUrlController,
+                decoration: const InputDecoration(
+                  labelText: 'URL Gambar',
+                  border: OutlineInputBorder(),
+                  hintText: 'https://example.com/image.jpg',
+                ),
+              ),
+              if (_imageUrlController.text.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      _imageUrlController.text,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Icon(Icons.error, color: Colors.red),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ] else ...[
+              ElevatedButton.icon(
+                onPressed: _pickImageFromGallery,
+                icon: const Icon(Icons.photo_library),
+                label: const Text('Pilih dari Galeri'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+              if (_selectedImageBytes != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.memory(
+                      _selectedImageBytes!,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Batal'),
+        ),
+        TextButton(
+          onPressed: () async {
+            if (_titleController.text.isEmpty || 
+                _contentController.text.isEmpty ||
+                _authorController.text.isEmpty ||
+                _categoryController.text.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Semua field harus diisi')),
+              );
+              return;
+            }
+
+            // Upload image if gallery mode
+            String imageUrl = _imageUrlController.text;
+            if (_imageMode == 'gallery' && _selectedImage != null) {
+              setState(() => _isUploading = true);
+              
+              // Show uploading notification
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Row(
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Text('Mengupload gambar...'),
+                    ],
+                  ),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+              
+              try {
+                imageUrl = await _uploadImageToStorage(_selectedImage!, 'articles') ?? '';
+                setState(() => _isUploading = false);
+                
+                // Show success notification
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ Gambar berhasil diupload'),
+                      backgroundColor: Colors.green,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              } catch (e) {
+                setState(() => _isUploading = false);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Gagal upload gambar: $e')),
+                  );
+                }
+                return;
+              }
+            }
+
+            final article = ArticleModel(
+              id: widget.article?.id ?? const Uuid().v4(),
+              title: _titleController.text,
+              content: _contentController.text,
+              imageUrl: imageUrl,
+              author: _authorController.text,
+              category: _categoryController.text,
+              readTime: widget.article?.readTime ?? 5,
+              readCount: widget.article?.readCount ?? 0,
+              publishedAt: widget.article?.publishedAt ?? DateTime.now(),
+              tags: widget.article?.tags ?? [],
+            );
+
+            Navigator.pop(context);
+            widget.onSave(article);
+          },
+          child: _isUploading 
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(widget.article == null ? 'Tambah' : 'Simpan'),
+        ),
+      ],
+    );
+  }
+}
+
+// Dialog untuk Tambah/Edit Data Narkotika dengan Image Picker
+class _DrugDialog extends StatefulWidget {
+  final DrugModel? drug;
+  final Function(DrugModel) onSave;
+
+  const _DrugDialog({
+    this.drug,
+    required this.onSave,
+  });
+
+  @override
+  State<_DrugDialog> createState() => _DrugDialogState();
+}
+
+class _DrugDialogState extends State<_DrugDialog> {
+  late TextEditingController _nameController;
+  late TextEditingController _descriptionController;
+  late TextEditingController _categoryController;
+  late TextEditingController _riskLevelController;
+  late TextEditingController _imageUrlController;
+
+  String _imageMode = 'url'; // 'url' atau 'gallery'
+  XFile? _selectedImage; // Changed to XFile for web compatibility
+  Uint8List? _selectedImageBytes; // For preview
+  final ImagePicker _picker = ImagePicker();
+  final _supabase = Supabase.instance.client;
+  bool _isUploading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.drug?.name ?? '');
+    _descriptionController = TextEditingController(text: widget.drug?.description ?? '');
+    _categoryController = TextEditingController(text: widget.drug?.category ?? '');
+    _riskLevelController = TextEditingController(text: widget.drug?.riskLevel ?? '');
+    _imageUrlController = TextEditingController(text: widget.drug?.imageUrl ?? '');
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descriptionController.dispose();
+    _categoryController.dispose();
+    _riskLevelController.dispose();
+    _imageUrlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickImageFromGallery() async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (image != null) {
+        final bytes = await image.readAsBytes();
+        setState(() {
+          _selectedImage = image;
+          _selectedImageBytes = bytes;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memilih gambar: $e')),
+        );
+      }
+    }
+  }
+
+  Future<String?> _uploadImageToStorage(XFile image, String folder) async {
+    try {
+      final bytes = await image.readAsBytes();
+      String ext = 'jpg';
+      final path = image.path.toLowerCase();
+      
+      if (path.contains('.png')) ext = 'png';
+      else if (path.contains('.webp')) ext = 'webp';
+      
+      final filename = '${const Uuid().v4()}.$ext';
+      final filepath = '$folder/$filename';
+      
+      await _supabase.storage.from('content-images').uploadBinary(
+        filepath,
+        bytes,
+        fileOptions: FileOptions(
+          contentType: ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg',
+          cacheControl: '3600',
+        ),
+      );
+      
+      return _supabase.storage.from('content-images').getPublicUrl(filepath);
+    } catch (e) {
+      print('❌ Upload failed: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.drug == null ? 'Tambah Data Narkotika' : 'Edit Data Narkotika'),
+      content: SizedBox(
+        width: 500,
+        child: SingleChildScrollView(
+          child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Nama Narkotika',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _descriptionController,
+              decoration: const InputDecoration(
+                labelText: 'Deskripsi',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _categoryController,
+              decoration: const InputDecoration(
+                labelText: 'Kategori (Golongan I/II/III/Stimulan/dll)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _riskLevelController,
+              decoration: const InputDecoration(
+                labelText: 'Level Risiko (low/medium/high/extreme)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Image Section
+            Text(
+              'Gambar',
+              style: AppTextStyles.bodyMedium.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Gallery mode selector
+            Row(
+              children: [
+                Expanded(
+                  child: RadioListTile<String>(
+                    title: const Text('URL', style: TextStyle(fontSize: 14)),
+                    value: 'url',
+                    groupValue: _imageMode,
+                    onChanged: (value) {
+                      setState(() {
+                        _imageMode = value!;
+                        _selectedImage = null;
+                        _selectedImageBytes = null;
+                      });
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: RadioListTile<String>(
+                    title: const Text('Galeri', style: TextStyle(fontSize: 14)),
+                    value: 'gallery',
+                    groupValue: _imageMode,
+                    onChanged: (value) {
+                      setState(() {
+                        _imageMode = value!;
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            if (_imageMode == 'url') ...[
+              TextField(
+                controller: _imageUrlController,
+                decoration: const InputDecoration(
+                  labelText: 'URL Gambar',
+                  border: OutlineInputBorder(),
+                  hintText: 'https://example.com/image.jpg',
+                ),
+              ),
+              if (_imageUrlController.text.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      _imageUrlController.text,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Icon(Icons.error, color: Colors.red),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ] else ...[
+              ElevatedButton.icon(
+                onPressed: _pickImageFromGallery,
+                icon: const Icon(Icons.photo_library),
+                label: const Text('Pilih dari Galeri'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+              if (_selectedImageBytes != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.memory(
+                      _selectedImageBytes!,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Batal'),
+        ),
+        TextButton(
+          onPressed: _isUploading ? null : () async {
+            if (_nameController.text.isEmpty ||
+                _descriptionController.text.isEmpty ||
+                _categoryController.text.isEmpty ||
+                _riskLevelController.text.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Semua field harus diisi')),
+              );
+              return;
+            }
+
+            String imageUrl = _imageUrlController.text;
+            if (_imageMode == 'gallery' && _selectedImage != null) {
+              setState(() => _isUploading = true);
+              
+              // Show uploading notification
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Row(
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Text('Mengupload gambar...'),
+                    ],
+                  ),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+              
+              try {
+                imageUrl = await _uploadImageToStorage(_selectedImage!, 'drugs') ?? '';
+                setState(() => _isUploading = false);
+                
+                // Show success notification
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(' Gambar berhasil diupload'),
+                      backgroundColor: Colors.green,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              } catch (e) {
+                setState(() => _isUploading = false);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Gagal upload gambar: $e')),
+                  );
+                }
+                return;
+              }
+            }
+
+            final drug = DrugModel(
+              id: widget.drug?.id ?? const Uuid().v4(),
+              name: _nameController.text,
+              otherNames: widget.drug?.otherNames ?? '',
+              category: _categoryController.text,
+              description: _descriptionController.text,
+              effects: widget.drug?.effects ?? [],
+              dangers: widget.drug?.dangers ?? [],
+              legalStatus: widget.drug?.legalStatus ?? 'Ilegal',
+              imageUrl: imageUrl.isEmpty ? null : imageUrl,
+              riskLevel: _riskLevelController.text.toLowerCase(),
+            );
+
+            Navigator.pop(context);
+            widget.onSave(drug);
+          },
+          child: _isUploading 
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(widget.drug == null ? 'Tambah' : 'Simpan'),
+        ),
+      ],
     );
   }
 }

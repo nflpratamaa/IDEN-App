@@ -228,7 +228,7 @@ class ResultScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text(
+                child: Text(
                   'Cari Bantuan',
                   style: AppTextStyles.button,
                 ),

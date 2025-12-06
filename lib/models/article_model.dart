@@ -9,7 +9,7 @@
 /// - author: Nama penulis artikel
 /// - category: Kategori artikel (Edukasi, Berita, Tips, dll)
 /// - readTime: Estimasi waktu baca (dalam menit)
-/// - views: Jumlah pembaca
+/// - readCount: Jumlah pembaca
 /// - publishedAt: Tanggal publikasi
 /// - tags: List tag untuk filtering
 
@@ -21,7 +21,7 @@ class ArticleModel {
   final String author;
   final String category;
   final int readTime; // dalam menit
-  final int views;
+  final int? readCount;
   final DateTime publishedAt;
   final List<String> tags;
 
@@ -33,23 +33,23 @@ class ArticleModel {
     required this.author,
     required this.category,
     required this.readTime,
-    this.views = 0,
+    this.readCount = 0,
     required this.publishedAt,
     required this.tags,
   });
 
-  /// Convert ke Map untuk Hive
+  /// Convert ke Map untuk Supabase
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'title': title,
       'content': content,
-      'imageUrl': imageUrl,
+      'image_url': imageUrl,
       'author': author,
       'category': category,
-      'readTime': readTime,
-      'views': views,
-      'publishedAt': publishedAt.toIso8601String(),
+      'read_time': readTime,
+      'read_count': readCount ?? 0,
+      'published_at': publishedAt.toIso8601String(),
       'tags': tags,
     };
   }
@@ -57,16 +57,16 @@ class ArticleModel {
   /// Buat dari Map
   factory ArticleModel.fromMap(Map<String, dynamic> map) {
     return ArticleModel(
-      id: map['id'],
+      id: map['id'].toString(),
       title: map['title'],
       content: map['content'],
-      imageUrl: map['imageUrl'],
+      imageUrl: map['image_url'] ?? map['imageUrl'] ?? '',
       author: map['author'],
       category: map['category'],
-      readTime: map['readTime'],
-      views: map['views'] ?? 0,
-      publishedAt: DateTime.parse(map['publishedAt']),
-      tags: List<String>.from(map['tags']),
+      readTime: map['read_time'] ?? map['readTime'] ?? 5,
+      readCount: map['read_count'] ?? map['readCount'] ?? 0,
+      publishedAt: DateTime.parse(map['published_at'] ?? map['publishedAt']),
+      tags: List<String>.from(map['tags'] ?? []),
     );
   }
 
@@ -80,7 +80,7 @@ class ArticleModel {
       author: author,
       category: category,
       readTime: readTime,
-      views: views + 1,
+      readCount: (readCount ?? 0) + 1,
       publishedAt: publishedAt,
       tags: tags,
     );

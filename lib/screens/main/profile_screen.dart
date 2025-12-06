@@ -1,10 +1,12 @@
 /// Profile Screen - Layar profil & pengaturan user
-/// Menampilkan: info user, stats (quiz/artikel/saved), menu settings
-/// Menu: Edit Profil, Password, Notifikasi, Bahasa, Admin Panel, Logout
-/// Dark mode sudah dihapus sesuai permintaan user
+/// Menampilkan: info user real dari Supabase, stats quiz/artikel, menu settings
+/// Menu: Edit Profil, Upload Photo, Password, Notifikasi, Admin Panel, Logout
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../services/auth_service.dart';
 import '../admin/admin_login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -15,11 +17,269 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  final _supabase = Supabase.instance.client;
   bool _notificationsEnabled = true;
+  bool _isLoading = true;
+  
+  // User data
+  String _userName = 'Loading...';
+  String _userEmail = 'Loading...';
+  String? _profileImageUrl;
+  int _quizzesTaken = 0;
+  int _articlesRead = 0;
+  int _savedItems = 0;
 
   @override
   void initState() {
     super.initState();
+    _loadUserProfile();
+  }
+
+  Future<void> _loadUserProfile() async {
+    try {
+      setState(() => _isLoading = true);
+      
+      final user = _supabase.auth.currentUser;
+      if (user == null) {
+        print('❌ No user logged in');
+        return;
+      }
+
+      print('📥 Loading profile for user: ${user.id}');
+      
+      // Load user data from users table
+      final userData = await _supabase
+          .from('users')
+          .select()
+          .eq('id', user.id)
+          .single();
+
+      if (mounted) {
+        setState(() {
+          _userName = userData['name'] ?? 'Pengguna IDEN';
+          _userEmail = userData['email'] ?? user.email ?? 'user@iden.com';
+          _profileImageUrl = userData['profile_image_url'];
+          _quizzesTaken = userData['quizzesTaken'] ?? 0;
+          _articlesRead = userData['articlesRead'] ?? 0;
+          _savedItems = userData['savedItems'] ?? 0;
+          _isLoading = false;
+        });
+        print('✅ Profile loaded successfully');
+      }
+    } catch (e) {
+      print('❌ Failed to load profile: $e');
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memuat profil: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickImage() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 75,
+      );
+
+      if (image != null) {
+        // Show loading
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                  SizedBox(width: 16),
+                  Text('Mengupload foto profil...'),
+                ],
+              ),
+              duration: Duration(seconds: 10),
+            ),
+          );
+        }
+
+        try {
+          final user = _supabase.auth.currentUser;
+          if (user == null) {
+            throw Exception('User tidak ditemukan');
+          }
+
+          // Read image as bytes
+          final bytes = await image.readAsBytes();
+          
+          // Extract clean file extension (avoid blob: URLs)
+          String fileExt = 'jpg'; // default
+          final path = image.path.toLowerCase();
+          
+          if (path.contains('.png')) {
+            fileExt = 'png';
+          } else if (path.contains('.webp')) {
+            fileExt = 'webp';
+          } else if (path.contains('.jpg') || path.contains('.jpeg')) {
+            fileExt = 'jpg';
+          }
+          
+          final fileName = '${user.id}.$fileExt';
+
+          // Determine content type based on extension
+          String contentType = 'image/jpeg'; // default
+          if (fileExt == 'png') {
+            contentType = 'image/png';
+          } else if (fileExt == 'webp') {
+            contentType = 'image/webp';
+          } else {
+            contentType = 'image/jpeg';
+          }
+
+          print('📤 Uploading avatar: $fileName (${bytes.length} bytes, $contentType)');
+
+          // Upload to Supabase Storage with proper content type
+          await _supabase.storage.from('avatars').uploadBinary(
+            fileName,
+            bytes,
+            fileOptions: FileOptions(
+              contentType: contentType, // Fix MIME type error
+              cacheControl: '3600',
+              upsert: true, // Overwrite if exists
+            ),
+          );
+
+          // Get public URL
+          final imageUrl = _supabase.storage.from('avatars').getPublicUrl(fileName);
+          print('✅ Upload successful: $imageUrl');
+
+          // Update profile_image_url in database
+          await _supabase
+              .from('users')
+              .update({'profile_image_url': imageUrl})
+              .eq('id', user.id);
+
+          // Update local state
+          setState(() {
+            _profileImageUrl = imageUrl;
+          });
+
+          // Hide loading and show success
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.white),
+                    SizedBox(width: 16),
+                    Text('Foto profil berhasil diperbarui!'),
+                  ],
+                ),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        } catch (uploadError) {
+          print('❌ Upload failed: $uploadError');
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.error, color: Colors.white),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text('Gagal upload: $uploadError'),
+                    ),
+                  ],
+                ),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      print('❌ Failed to pick image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memilih gambar: $e')),
+        );
+      }
+    }
+  }
+
+  void _showEditNameDialog() {
+    final TextEditingController nameController = TextEditingController(text: _userName);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Nama'),
+        content: TextField(
+          controller: nameController,
+          decoration: const InputDecoration(
+            labelText: 'Nama Lengkap',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newName = nameController.text.trim();
+              if (newName.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Nama tidak boleh kosong')),
+                );
+                return;
+              }
+
+              try {
+                final user = _supabase.auth.currentUser;
+                if (user != null) {
+                  await _supabase
+                      .from('users')
+                      .update({'name': newName})
+                      .eq('id', user.id);
+                  
+                  setState(() => _userName = newName);
+                  
+                  if (mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Nama berhasil diupdate')),
+                    );
+                  }
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Gagal update nama: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -41,7 +301,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
         child: Column(
           children: [
             // Profile Header
@@ -57,30 +319,62 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               child: Column(
                 children: [
-                  // Avatar
-                  Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.accent, width: 3),
-                    ),
-                    child: const Icon(
-                      Icons.person,
-                      size: 50,
-                      color: AppColors.primary,
-                    ),
+                  // Avatar with edit button
+                  Stack(
+                    children: [
+                      Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.accent, width: 3),
+                          image: _profileImageUrl != null
+                              ? DecorationImage(
+                                  image: NetworkImage(_profileImageUrl!),
+                                  fit: BoxFit.cover,
+                                )
+                              : null,
+                        ),
+                        child: _profileImageUrl == null
+                            ? Icon(
+                                Icons.person,
+                                size: 50,
+                                color: AppColors.primary,
+                              )
+                            : null,
+                      ),
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: GestureDetector(
+                          onTap: _pickImage,
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppColors.accent,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: const Icon(
+                              Icons.camera_alt,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   // Name
                   Text(
-                    'Pengguna IDEN',
+                    _userName,
                     style: AppTextStyles.h3.copyWith(color: Colors.white),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'user@iden.com',
+                    _userEmail,
                     style: AppTextStyles.bodyMedium.copyWith(
                       color: Colors.white.withOpacity(0.8),
                     ),
@@ -90,19 +384,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _buildStatItem('5', 'Quiz Diikuti'),
+                      _buildStatItem('$_quizzesTaken', 'Quiz Diikuti'),
                       Container(
                         width: 1,
                         height: 40,
                         color: Colors.white.withOpacity(0.3),
                       ),
-                      _buildStatItem('12', 'Artikel Dibaca'),
+                      _buildStatItem('$_articlesRead', 'Artikel Dibaca'),
                       Container(
                         width: 1,
                         height: 40,
                         color: Colors.white.withOpacity(0.3),
                       ),
-                      _buildStatItem('3', 'Tersimpan'),
+                      _buildStatItem('$_savedItems', 'Tersimpan'),
                     ],
                   ),
                 ],
@@ -115,9 +409,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
               [
                 _buildMenuItem(
                   Icons.person_outline,
-                  'Edit Profil',
-                  'Ubah informasi pribadi',
-                  () {},
+                  'Edit Nama',
+                  'Ubah nama tampilan',
+                  () => _showEditNameDialog(),
+                ),
+                _buildMenuItem(
+                  Icons.refresh,
+                  'Refresh Profile',
+                  'Muat ulang data profil',
+                  () => _loadUserProfile(),
                 ),
                 _buildMenuItem(
                   Icons.lock_outline,
@@ -347,11 +647,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: const Text('Batal'),
           ),
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Berhasil keluar')),
-              );
+            onPressed: () async {
+              try {
+                // Close dialog first
+                Navigator.pop(context);
+                
+                print('👋 Signing out user');
+                final authService = AuthService();
+                
+                // Sign out from auth service
+                await authService.signOut();
+                print('✅ Sign out completed');
+                
+                // Navigate away from profile screen to root (OnboardingScreen)
+                // The app will automatically route based on auth state in SplashScreen
+                if (mounted) {
+                  Navigator.of(context).pushNamedAndRemoveUntil(
+                    '/',
+                    (route) => false,
+                  );
+                }
+              } catch (e) {
+                print('❌ Sign out error: $e');
+                // Show error only if context is still valid
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error keluar: $e')),
+                  );
+                }
+              }
             },
             child: const Text(
               'Keluar',

@@ -71,33 +71,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   final data = _onboardingData[index];
                   return Padding(
                     padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      children: [
-                        // Icon/Illustration
-                        Container(
-                          width: 200,
-                          height: 200,
-                          decoration: BoxDecoration(
-                            color: AppColors.primary,
-                            borderRadius: BorderRadius.circular(16),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          // Icon/Illustration
+                          Container(
+                            width: 200,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Icon(
+                              data['icon'],
+                              size: 100,
+                              color: AppColors.accent,
+                            ),
                           ),
-                          child: Icon(
-                            data['icon'],
-                            size: 100,
-                            color: AppColors.accent,
-                          ),
-                        ),
-                        const SizedBox(height: 40),
-                        // Page Indicators
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: List.generate(
-                            _onboardingData.length,
-                            (dotIndex) => Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 4),
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
+                          const SizedBox(height: 40),
+                          // Page Indicators
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(
+                              _onboardingData.length,
+                              (dotIndex) => Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 4),
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 color: dotIndex == _currentPage
                                     ? AppColors.accent
@@ -149,6 +150,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         ),
                       ],
                     ),
+                    ),
                   );
                 },
               ),
@@ -171,7 +173,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: const Text(
+                      child: Text(
                         'Mulai',
                         style: AppTextStyles.button,
                       ),

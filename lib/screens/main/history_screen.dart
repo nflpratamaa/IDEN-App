@@ -1,9 +1,15 @@
 /// History Screen - Riwayat aktivitas user
-/// 2 tabs: Quiz (hasil quiz sebelumnya) dan Artikel (artikel yang dibaca)
-/// Menampilkan tanggal, skor, status untuk filter data lama
+/// 3 tabs: Quiz (hasil quiz sebelumnya), Dibaca (artikel yang dibaca), Tersimpan (bookmarks)
+/// Menampilkan data real dari Supabase dengan loading state
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../models/quiz_model.dart';
+import '../../models/article_model.dart';
+import '../../services/quiz_service.dart';
+import 'article_detail_screen.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -15,71 +21,187 @@ class HistoryScreen extends StatefulWidget {
 class _HistoryScreenState extends State<HistoryScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  final _supabase = Supabase.instance.client;
+  final _quizService = QuizService();
 
-  final List<Map<String, dynamic>> _quizHistory = [
-    {
-      'date': '28 Nov 2025',
-      'time': '14:30',
-      'riskLevel': 'SEDANG',
-      'score': 60,
-      'color': AppColors.riskMedium,
-    },
-    {
-      'date': '15 Nov 2025',
-      'time': '09:15',
-      'riskLevel': 'RENDAH',
-      'score': 25,
-      'color': AppColors.riskLow,
-    },
-    {
-      'date': '02 Nov 2025',
-      'time': '16:45',
-      'riskLevel': 'SEDANG',
-      'score': 55,
-      'color': AppColors.riskMedium,
-    },
-  ];
+  List<QuizResult> _quizHistory = [];
+  List<ArticleModel> _readHistory = [];
+  List<ArticleModel> _bookmarks = [];
 
-  final List<Map<String, dynamic>> _readHistory = [
-    {
-      'title': 'Metamfetamin',
-      'category': 'Stimulan',
-      'date': '01 Des 2025',
-      'riskLevel': 'Tinggi',
-    },
-    {
-      'title': 'Kokain',
-      'category': 'Stimulan',
-      'date': '30 Nov 2025',
-      'riskLevel': 'Tinggi',
-    },
-    {
-      'title': 'MDMA (Ekstasi)',
-      'category': 'Stimulan',
-      'date': '28 Nov 2025',
-      'riskLevel': 'Sedang',
-    },
-  ];
-
-  final List<Map<String, dynamic>> _bookmarks = [
-    {
-      'title': 'Metamfetamin',
-      'category': 'Stimulan',
-      'riskLevel': 'Tinggi',
-      'riskColor': AppColors.riskHigh,
-    },
-    {
-      'title': 'MDMA (Ekstasi)',
-      'category': 'Stimulan',
-      'riskLevel': 'Sedang',
-      'riskColor': AppColors.riskMedium,
-    },
-  ];
+  bool _isLoadingQuiz = false;
+  bool _isLoadingRead = false;
+  bool _isLoadingBookmarks = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(_onTabChanged);
+    _loadQuizHistory(); // Load first tab immediately
+  }
+
+  void _onTabChanged() {
+    if (!_tabController.indexIsChanging) {
+      // Lazy load data when tab changes
+      if (_tabController.index == 1 && _readHistory.isEmpty) {
+        _loadReadHistory();
+      } else if (_tabController.index == 2 && _bookmarks.isEmpty) {
+        _loadBookmarks();
+      }
+    }
+  }
+
+  Future<void> _loadQuizHistory() async {
+    if (_isLoadingQuiz) return;
+
+    setState(() => _isLoadingQuiz = true);
+    
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        print('❌ User not authenticated');
+        return;
+      }
+
+      print('📥 Loading quiz history for user: $userId');
+      final history = await _quizService.getUserQuizHistory(userId);
+      
+      setState(() {
+        _quizHistory = history;
+      });
+      
+      print('✅ Loaded ${history.length} quiz results');
+    } catch (e) {
+      print('❌ Error loading quiz history: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memuat riwayat quiz: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingQuiz = false);
+      }
+    }
+  }
+
+  Future<void> _loadReadHistory() async {
+    if (_isLoadingRead) return;
+
+    setState(() => _isLoadingRead = true);
+    
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        print('❌ User not authenticated');
+        return;
+      }
+
+      print('📥 Loading read history for user: $userId');
+      final response = await _supabase
+          .from('read_history')
+          .select('*, articles(*)')
+          .eq('user_id', userId)
+          .order('read_at', ascending: false);
+      
+      final articles = <ArticleModel>[];
+      for (var item in response) {
+        if (item['articles'] != null) {
+          articles.add(ArticleModel.fromMap(item['articles']));
+        }
+      }
+      
+      setState(() {
+        _readHistory = articles;
+      });
+      
+      print('✅ Loaded ${articles.length} read articles');
+    } catch (e) {
+      print('❌ Error loading read history: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memuat riwayat bacaan: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingRead = false);
+      }
+    }
+  }
+
+  Future<void> _loadBookmarks() async {
+    if (_isLoadingBookmarks) return;
+
+    setState(() => _isLoadingBookmarks = true);
+    
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        print('❌ User not authenticated');
+        return;
+      }
+
+      print('📥 Loading bookmarks for user: $userId');
+      final response = await _supabase
+          .from('bookmarks')
+          .select('*, articles(*)')
+          .eq('user_id', userId)
+          .order('created_at', ascending: false);
+      
+      final articles = <ArticleModel>[];
+      for (var item in response) {
+        if (item['articles'] != null) {
+          articles.add(ArticleModel.fromMap(item['articles']));
+        }
+      }
+      
+      setState(() {
+        _bookmarks = articles;
+      });
+      
+      print('✅ Loaded ${articles.length} bookmarks');
+    } catch (e) {
+      print('❌ Error loading bookmarks: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memuat bookmark: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingBookmarks = false);
+      }
+    }
+  }
+
+  Future<void> _removeBookmark(ArticleModel article) async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return;
+
+      await _supabase
+          .from('bookmarks')
+          .delete()
+          .eq('user_id', userId)
+          .eq('article_id', article.id);
+
+      setState(() {
+        _bookmarks.removeWhere((a) => a.id == article.id);
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Dihapus dari tersimpan')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal menghapus bookmark: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -165,12 +287,32 @@ class _HistoryScreenState extends State<HistoryScreen>
       itemCount: _bookmarks.length,
       itemBuilder: (context, index) {
         final item = _bookmarks[index];
-        return _buildBookmarkCard(item, index);
+        return _buildBookmarkCard(item);
       },
     );
   }
 
-  Widget _buildQuizHistoryCard(Map<String, dynamic> item) {
+  Widget _buildQuizHistoryCard(QuizResult result) {
+    // Determine risk level and color based on score
+    String riskLevel;
+    Color riskColor;
+    if (result.totalScore >= 70) {
+      riskLevel = 'TINGGI';
+      riskColor = AppColors.riskHigh;
+    } else if (result.totalScore >= 40) {
+      riskLevel = 'SEDANG';
+      riskColor = AppColors.riskMedium;
+    } else {
+      riskLevel = 'RENDAH';
+      riskColor = AppColors.riskLow;
+    }
+
+    // Format date
+    final dateFormat = DateFormat('dd MMM yyyy', 'id_ID');
+    final timeFormat = DateFormat('HH:mm');
+    final date = dateFormat.format(result.completedAt);
+    final time = timeFormat.format(result.completedAt);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -191,12 +333,12 @@ class _HistoryScreenState extends State<HistoryScreen>
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: item['color'].withOpacity(0.1),
+              color: riskColor.withOpacity(0.1),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
               Icons.assessment,
-              color: item['color'],
+              color: riskColor,
               size: 28,
             ),
           ),
@@ -219,11 +361,11 @@ class _HistoryScreenState extends State<HistoryScreen>
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: item['color'],
+                        color: riskColor,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        item['riskLevel'],
+                        riskLevel,
                         style: AppTextStyles.bodySmall.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.w600,
@@ -235,27 +377,27 @@ class _HistoryScreenState extends State<HistoryScreen>
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.calendar_today,
                       size: 14,
                       color: AppColors.textLight,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      '${item['date']} • ${item['time']}',
+                      '$date \u2022 $time',
                       style: AppTextStyles.bodySmall.copyWith(
                         color: AppColors.textSecondary,
                       ),
                     ),
                     const SizedBox(width: 16),
-                    Icon(
+                    const Icon(
                       Icons.score,
                       size: 14,
                       color: AppColors.textLight,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      'Skor: ${item['score']}%',
+                      'Skor: ${result.totalScore}%',
                       style: AppTextStyles.bodySmall.copyWith(
                         color: AppColors.textSecondary,
                       ),
@@ -270,166 +412,184 @@ class _HistoryScreenState extends State<HistoryScreen>
     );
   }
 
-  Widget _buildReadHistoryCard(Map<String, dynamic> item) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadow,
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+  Widget _buildReadHistoryCard(ArticleModel article) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ArticleDetailScreen(article: article),
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // Icon
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.shadow,
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
-            child: const Icon(
-              Icons.article,
-              color: AppColors.primary,
-              size: 28,
+          ],
+        ),
+        child: Row(
+          children: [
+            // Icon
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.article,
+                color: AppColors.primary,
+                size: 28,
+              ),
             ),
-          ),
-          const SizedBox(width: 16),
-          // Content
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item['title'],
-                  style: AppTextStyles.h4,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item['category'],
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: AppColors.textSecondary,
+            const SizedBox(width: 16),
+            // Content
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    article.title,
+                    style: AppTextStyles.h4,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.access_time,
-                      size: 14,
-                      color: AppColors.textLight,
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      item['date'],
+                    decoration: BoxDecoration(
+                      color: AppColors.accent.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      article.category,
                       style: AppTextStyles.bodySmall.copyWith(
-                        color: AppColors.textLight,
+                        color: AppColors.accent,
+                        fontSize: 11,
                       ),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'by ${article.author}',
+                    style: AppTextStyles.bodySmall.copyWith(
+                      color: AppColors.textLight,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const Icon(
-            Icons.arrow_forward_ios,
-            size: 16,
-            color: AppColors.textLight,
-          ),
-        ],
+            const Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: AppColors.textLight,
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildBookmarkCard(Map<String, dynamic> item, int index) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadow,
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+  Widget _buildBookmarkCard(ArticleModel article) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ArticleDetailScreen(article: article),
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // Icon
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: item['riskColor'].withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.shadow,
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
-            child: Icon(
-              Icons.warning_amber_rounded,
-              color: item['riskColor'],
-              size: 28,
+          ],
+        ),
+        child: Row(
+          children: [
+            // Icon
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.accent.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.bookmark,
+                color: AppColors.accent,
+                size: 28,
+              ),
             ),
-          ),
-          const SizedBox(width: 16),
-          // Content
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item['title'],
-                  style: AppTextStyles.h4,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item['category'],
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: AppColors.textSecondary,
+            const SizedBox(width: 16),
+            // Content
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    article.title,
+                    style: AppTextStyles.h4,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: item['riskColor'],
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    'Risiko ${item['riskLevel']}',
+                  const SizedBox(height: 4),
+                  Text(
+                    'by ${article.author}',
                     style: AppTextStyles.bodySmall.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary,
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      article.category,
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppColors.primary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          IconButton(
-            icon: const Icon(
-              Icons.bookmark,
-              color: AppColors.primary,
+            IconButton(
+              icon: const Icon(
+                Icons.bookmark_remove,
+                color: AppColors.error,
+              ),
+              onPressed: () => _removeBookmark(article),
             ),
-            onPressed: () {
-              setState(() {
-                _bookmarks.removeAt(index);
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Dihapus dari tersimpan')),
-              );
-            },
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

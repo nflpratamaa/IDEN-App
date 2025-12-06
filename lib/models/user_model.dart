@@ -46,17 +46,19 @@ class UserModel {
     };
   }
 
-  /// Buat object dari Map yang diambil dari Hive
+  /// Buat object dari Map yang diambil dari Hive atau Supabase
   factory UserModel.fromMap(Map<String, dynamic> map) {
     return UserModel(
-      id: map['id'],
-      name: map['name'],
-      email: map['email'],
-      password: map['password'],
+      id: map['id'] ?? '',
+      name: map['name'] ?? '',
+      email: map['email'] ?? '',
+      password: map['password'] ?? '', // Password tidak ada di Supabase users table
       quizzesTaken: map['quizzesTaken'] ?? 0,
       articlesRead: map['articlesRead'] ?? 0,
       savedItems: map['savedItems'] ?? 0,
-      createdAt: DateTime.parse(map['createdAt']),
+      createdAt: map['createdAt'] != null 
+          ? DateTime.parse(map['createdAt']) 
+          : DateTime.now(),
     );
   }
 

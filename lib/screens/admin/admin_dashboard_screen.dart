@@ -1,16 +1,63 @@
 /// Admin Dashboard - Panel kontrol admin
 /// Menampilkan: statistik (users, articles, quizzes, daily access)
-/// Menu: Content Management, User Management, Quiz Management, Emergency Management
+/// Menu: Content Management, User Management, Quiz Management, Emergency Management, Analytics
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import 'content_management_screen.dart';
 import 'user_management_screen.dart';
 import 'quiz_management_screen.dart';
 import 'emergency_management_screen.dart';
+import 'analytics_screen.dart';
 
-class AdminDashboardScreen extends StatelessWidget {
+class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
+
+  @override
+  State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
+}
+
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+  final _supabase = Supabase.instance.client;
+  bool _isLoading = true;
+  int _totalUsers = 0;
+  int _totalArticles = 0;
+  int _totalQuizzes = 0;
+  int _totalDrugs = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStatistics();
+  }
+
+  Future<void> _loadStatistics() async {
+    try {
+      setState(() => _isLoading = true);
+
+      // Load counts from database - just count the results
+      final users = await _supabase.from('users').select();
+      final articles = await _supabase.from('articles').select();
+      final quizzes = await _supabase.from('quizzes').select();
+      final drugs = await _supabase.from('drugs').select();
+
+      setState(() {
+        _totalUsers = users.length;
+        _totalArticles = articles.length;
+        _totalQuizzes = quizzes.length;
+        _totalDrugs = drugs.length;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memuat statistik: $e')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,35 +80,37 @@ class AdminDashboardScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Welcome Header
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(30),
-                  bottomRight: Radius.circular(30),
-                ),
-              ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Selamat Datang, Admin',
-                    style: AppTextStyles.h3.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
+                  // Welcome Header
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: const BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.only(
+                        bottomLeft: Radius.circular(30),
+                        bottomRight: Radius.circular(30),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Kelola sistem IDEN dengan mudah',
-                    style: AppTextStyles.bodyMedium.copyWith(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Selamat Datang, Admin',
+                          style: AppTextStyles.h3.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Kelola sistem IDEN dengan mudah',
+                          style: AppTextStyles.bodyMedium.copyWith(
                       color: Colors.white.withOpacity(0.9),
                     ),
                   ),
@@ -88,7 +137,7 @@ class AdminDashboardScreen extends StatelessWidget {
                       Expanded(
                         child: _buildStatCard(
                           'Total Pengguna',
-                          '1,234',
+                          _totalUsers.toString(),
                           Icons.people,
                           AppColors.primary,
                         ),
@@ -97,7 +146,7 @@ class AdminDashboardScreen extends StatelessWidget {
                       Expanded(
                         child: _buildStatCard(
                           'Artikel',
-                          '87',
+                          _totalArticles.toString(),
                           Icons.article,
                           AppColors.accent,
                         ),
@@ -109,8 +158,8 @@ class AdminDashboardScreen extends StatelessWidget {
                     children: [
                       Expanded(
                         child: _buildStatCard(
-                          'Quiz Diambil',
-                          '3,456',
+                          'Total Quiz',
+                          _totalQuizzes.toString(),
                           Icons.quiz,
                           AppColors.success,
                         ),
@@ -118,8 +167,8 @@ class AdminDashboardScreen extends StatelessWidget {
                       const SizedBox(width: 12),
                       Expanded(
                         child: _buildStatCard(
-                          'Akses Hari Ini',
-                          '456',
+                          'Data Narkotika',
+                          _totalDrugs.toString(),
                           Icons.trending_up,
                           AppColors.warning,
                         ),
@@ -198,11 +247,10 @@ class AdminDashboardScreen extends StatelessWidget {
                     'Lihat statistik dan export data',
                     Icons.analytics,
                     AppColors.warning,
-                    () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Fitur Laporan coming soon')),
-                      );
-                    },
+                    () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AnalyticsScreen()),
+                    ),
                   ),
                   const SizedBox(height: 24),
                 ],

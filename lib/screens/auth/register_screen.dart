@@ -2,8 +2,10 @@
 /// Form registrasi: nama, email, password, konfirmasi password
 /// Validasi: email format, password match, semua field required
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../services/auth_service.dart';
 import '../main/home_screen.dart';
 import 'login_screen.dart';
 
@@ -20,34 +22,67 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _authService = AuthService();
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
   bool _agreeToTerms = false;
+  bool _isLoading = false;
 
-  void _register() {
-    if (_formKey.currentState!.validate()) {
-      if (!_agreeToTerms) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Anda harus menyetujui Syarat & Ketentuan'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-        return;
-      }
+  Future<void> _register() async {
+    if (!_formKey.currentState!.validate()) return;
 
-      // Simulate registration
+    if (!_agreeToTerms) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Registrasi berhasil! Silakan login'),
-          backgroundColor: AppColors.success,
+          content: Text('Anda harus menyetujui Syarat & Ketentuan'),
+          backgroundColor: AppColors.error,
         ),
       );
+      return;
+    }
 
-      // Navigate to login
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
+    setState(() => _isLoading = true);
+
+    try {
+      await _authService.signUp(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+        name: _nameController.text.trim(),
       );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Registrasi berhasil! Silakan login'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+
+        // Navigate to home directly (auto login after register)
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+      }
+    } on AuthException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Registrasi gagal: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -72,22 +107,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Logo
-                Center(
-                  child: Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Icon(
-                      Icons.favorite,
-                      color: AppColors.accent,
-                      size: 40,
-                    ),
-                  ),
-                ),
                 const SizedBox(height: 24),
                 // Title
                 Text(
@@ -285,7 +304,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 24),
                 // Register Button
                 ElevatedButton(
-                  onPressed: _register,
+                  onPressed: _isLoading ? null : _register,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
@@ -294,10 +313,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text(
-                    'Daftar',
-                    style: AppTextStyles.button,
-                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Text(
+                          'Daftar',
+                          style: AppTextStyles.button,
+                        ),
                 ),
                 const SizedBox(height: 16),
                 // Guest Button

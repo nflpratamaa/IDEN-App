@@ -147,7 +147,7 @@ class HelpCenterScreen extends StatelessWidget {
                   );
                 },
                 icon: const Icon(Icons.call),
-                label: const Text(
+                label: Text(
                   'Hubungi Sekarang',
                   style: AppTextStyles.button,
                 ),

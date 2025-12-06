@@ -15,6 +15,7 @@
 class DrugModel {
   final String id;
   final String name;
+  final String otherNames; // Nama lain/alias
   final String category;
   final String description;
   final List<String> effects;
@@ -26,6 +27,7 @@ class DrugModel {
   DrugModel({
     required this.id,
     required this.name,
+    required this.otherNames,
     required this.category,
     required this.description,
     required this.effects,
@@ -35,33 +37,35 @@ class DrugModel {
     required this.riskLevel,
   });
 
-  /// Convert ke Map untuk Hive
+  /// Convert ke Map untuk Supabase
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'name': name,
+      'other_names': otherNames,
       'category': category,
       'description': description,
       'effects': effects,
       'dangers': dangers,
-      'legalStatus': legalStatus,
-      'imageUrl': imageUrl,
-      'riskLevel': riskLevel,
+      'legal_status': legalStatus,
+      'image_url': imageUrl,
+      'risk_level': riskLevel,
     };
   }
 
   /// Buat dari Map
   factory DrugModel.fromMap(Map<String, dynamic> map) {
     return DrugModel(
-      id: map['id'],
+      id: map['id'].toString(),
       name: map['name'],
+      otherNames: map['other_names'] ?? map['otherNames'] ?? '',
       category: map['category'],
       description: map['description'],
-      effects: List<String>.from(map['effects']),
-      dangers: List<String>.from(map['dangers']),
-      legalStatus: map['legalStatus'],
-      imageUrl: map['imageUrl'],
-      riskLevel: map['riskLevel'],
+      effects: List<String>.from(map['effects'] ?? []),
+      dangers: List<String>.from(map['dangers'] ?? []),
+      legalStatus: map['legal_status'] ?? map['legalStatus'] ?? '',
+      imageUrl: map['image_url'] ?? map['imageUrl'],
+      riskLevel: map['risk_level'] ?? map['riskLevel'] ?? 'medium',
     );
   }
 }

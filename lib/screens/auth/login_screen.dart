@@ -2,8 +2,10 @@
 /// Form login dengan email & password, validasi input, navigasi ke register
 /// Setelah login berhasil, masuk ke Home Screen
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../services/auth_service.dart';
 import '../main/home_screen.dart';
 import 'register_screen.dart';
 
@@ -18,22 +20,57 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _authService = AuthService();
   bool _isPasswordVisible = false;
   bool _rememberMe = false;
+  bool _isLoading = false;
 
-  void _login() {
-    if (_formKey.currentState!.validate()) {
-      // Simulate login
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
+  Future<void> _login() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      print('🔐 Login attempt: ${_emailController.text.trim()}');
+      
+      await _authService.signIn(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
       );
-    }
-  }
 
-  void _skipLogin() {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-    );
+      print('✅ Login successful!');
+
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+      }
+    } on AuthException catch (e) {
+      print('❌ Auth Error: ${e.message} (${e.statusCode})');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${e.message}\n\nJika baru register, coba refresh halaman (F5)'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e, stackTrace) {
+      print('❌ Unexpected Error: $e');
+      print('Stack trace: $stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Login gagal: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -49,21 +86,6 @@ class _LoginScreenState extends State<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: 40),
-                // Logo
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Icon(
-                    Icons.favorite,
-                    color: AppColors.accent,
-                    size: 50,
-                  ),
-                ),
-                const SizedBox(height: 24),
                 // Title
                 Text(
                   'Selamat Datang di IDEN',
@@ -183,7 +205,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 24),
                 // Login Button
                 ElevatedButton(
-                  onPressed: _login,
+                  onPressed: _isLoading ? null : _login,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
@@ -192,12 +214,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Masuk',
                     style: AppTextStyles.button,
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
                 // Divider
                 Row(
                   children: [
@@ -205,31 +227,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Text(
-                        'atau',
-                        style: AppTextStyles.bodyMedium.copyWith(
-                          color: AppColors.textLight,
+                        'Atau masuk dengan',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AppColors.textSecondary,
                         ),
                       ),
                     ),
                     const Expanded(child: Divider()),
                   ],
                 ),
-                const SizedBox(height: 24),
-                // Guest Button
-                OutlinedButton.icon(
-                  onPressed: _skipLogin,
-                  icon: const Icon(Icons.person_outline),
-                  label: const Text('Lanjutkan sebagai Tamu'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textSecondary,
-                    side: const BorderSide(color: AppColors.border),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 32),
                 // Register Link
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
