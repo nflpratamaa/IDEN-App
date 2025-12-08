@@ -132,6 +132,15 @@ class _HomeContentState extends State<HomeContent> {
   bool _isLoadingArticles = true;
   String _userName = '';
   int _unreadCount = 0;
+  
+  // Manual swipe banner
+  final PageController _bannerController = PageController();
+  int _currentBannerIndex = 0;
+  final List<String> _bannerImages = [
+    'https://ewfjweofdmnyfeyvamts.supabase.co/storage/v1/object/public/banners/banner1.jpg',
+    'https://ewfjweofdmnyfeyvamts.supabase.co/storage/v1/object/public/banners/banner2.jpg',
+    'https://ewfjweofdmnyfeyvamts.supabase.co/storage/v1/object/public/banners/banner3.jpg',
+  ];
 
   @override
   void initState() {
@@ -139,6 +148,12 @@ class _HomeContentState extends State<HomeContent> {
     _loadUserName();
     _loadArticles();
     _loadUnreadCount();
+  }
+  
+  @override
+  void dispose() {
+    _bannerController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadUserName() async {
@@ -155,9 +170,11 @@ class _HomeContentState extends State<HomeContent> {
         
         print('📦 Response from database: $response');
         
-        setState(() {
-          _userName = response['name'] ?? '';
-        });
+        if (mounted) {
+          setState(() {
+            _userName = response['name'] ?? '';
+          });
+        }
         
         print('✅ User name loaded: $_userName');
       } else {
@@ -171,9 +188,11 @@ class _HomeContentState extends State<HomeContent> {
   Future<void> _loadUnreadCount() async {
     try {
       final count = await _notificationService.getUnreadCount();
-      setState(() {
-        _unreadCount = count;
-      });
+      if (mounted) {
+        setState(() {
+          _unreadCount = count;
+        });
+      }
       print('✅ Unread notifications: $count');
     } catch (e) {
       print('❌ Failed to load unread count: $e');
@@ -187,13 +206,17 @@ class _HomeContentState extends State<HomeContent> {
           .select()
           .order('created_at', ascending: false)
           .limit(3);
-      setState(() {
-        _articles = response.map((json) => ArticleModel.fromMap(json)).toList();
-        _isLoadingArticles = false;
-      });
+      if (mounted) {
+        setState(() {
+          _articles = response.map((json) => ArticleModel.fromMap(json)).toList();
+          _isLoadingArticles = false;
+        });
+      }
     } catch (e) {
       print('❌ Gagal memuat artikel: $e');
-      setState(() => _isLoadingArticles = false);
+      if (mounted) {
+        setState(() => _isLoadingArticles = false);
+      }
     }
   }
 
@@ -284,6 +307,86 @@ class _HomeContentState extends State<HomeContent> {
                 'Apa yang bisa kami bantu?',
                 style: AppTextStyles.bodyLarge.copyWith(
                   color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 20),
+              
+              // 📱 MANUAL SWIPE BANNER
+              Container(
+                height: 160,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Stack(
+                    children: [
+                      PageView.builder(
+                        controller: _bannerController,
+                        onPageChanged: (index) {
+                          if (mounted) {
+                            setState(() {
+                              _currentBannerIndex = index;
+                            });
+                          }
+                        },
+                        itemCount: _bannerImages.length,
+                        itemBuilder: (context, index) {
+                          return Image.network(
+                            _bannerImages[index],
+                            fit: BoxFit.cover,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Container(
+                                color: AppColors.primary.withOpacity(0.1),
+                                child: const Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            },
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                color: AppColors.primary.withOpacity(0.1),
+                                child: const Center(
+                                  child: Icon(Icons.image, size: 50, color: AppColors.primary),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                      // Dot Indicators
+                      Positioned(
+                        bottom: 12,
+                        left: 0,
+                        right: 0,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(
+                            _bannerImages.length,
+                            (index) => Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              width: _currentBannerIndex == index ? 24 : 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: _currentBannerIndex == index
+                                    ? Colors.white
+                                    : Colors.white.withOpacity(0.5),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 24),

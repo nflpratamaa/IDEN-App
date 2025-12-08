@@ -137,13 +137,13 @@ class _CatalogScreenState extends State<CatalogScreen> with SingleTickerProvider
 
   Color _getRiskColor(String riskLevel) {
     switch (riskLevel.toLowerCase()) {
-      case 'rendah':
+      case 'low':  // Changed from 'rendah'
         return AppColors.riskLow;
-      case 'sedang':
+      case 'medium':  // Changed from 'sedang'
         return AppColors.riskMedium;
-      case 'tinggi':
+      case 'high':  // Changed from 'tinggi'
         return AppColors.riskHigh;
-      case 'ekstrem':
+      case 'extreme':  // Changed from 'ekstrem'
         return AppColors.riskExtreme;
       default:
         return AppColors.riskMedium;

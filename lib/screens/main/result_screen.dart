@@ -2,12 +2,16 @@
 /// Menampilkan: skor, risk level dengan warna, badge, rekomendasi actions
 /// Button: lihat detail dan kembali ke home
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../models/quiz_model.dart';
+import '../../services/quiz_service.dart';
 import 'home_screen.dart';
 import 'help_center_screen.dart';
 
-class ResultScreen extends StatelessWidget {
+class ResultScreen extends StatefulWidget {
   final int totalScore;
   final int maxScore;
 
@@ -17,12 +21,22 @@ class ResultScreen extends StatelessWidget {
     required this.maxScore,
   });
 
+  @override
+  State<ResultScreen> createState() => _ResultScreenState();
+}
+
+class _ResultScreenState extends State<ResultScreen> {
+  final _quizService = QuizService();
+  final _supabase = Supabase.instance.client;
+  bool _isSaved = false;
+  bool _isSaving = false;
+
   Map<String, dynamic> _getRiskLevel() {
-    final percentage = (totalScore / maxScore) * 100;
+    final percentage = (widget.totalScore / widget.maxScore) * 100;
 
     if (percentage <= 30) {
       return {
-        'level': 'RENDAH',
+        'level': 'low',  // Changed from 'rendah' to match database constraint
         'color': AppColors.riskLow,
         'icon': Icons.check_circle,
         'message': 'Tingkat Risiko: RENDAH',
@@ -30,7 +44,7 @@ class ResultScreen extends StatelessWidget {
       };
     } else if (percentage <= 60) {
       return {
-        'level': 'SEDANG',
+        'level': 'medium',  // Changed from 'sedang' to match database constraint
         'color': AppColors.riskMedium,
         'icon': Icons.warning_amber,
         'message': 'Tingkat Risiko: SEDANG',
@@ -38,22 +52,77 @@ class ResultScreen extends StatelessWidget {
       };
     } else {
       return {
-        'level': 'TINGGI',
+        'level': 'high',  // Changed from 'tinggi' to match database constraint
         'color': AppColors.riskHigh,
         'icon': Icons.error,
-        'message': 'Tingkat Risiko: SEDANG',
+        'message': 'Tingkat Risiko: TINGGI',
         'description': 'Berdasarkan jawaban Anda',
       };
     }
   }
 
   Map<String, int> _getScoreBreakdown() {
-    final percentage = (totalScore / maxScore) * 100;
+    final percentage = (widget.totalScore / widget.maxScore) * 100;
     return {
       'frequency': ((percentage * 0.6).round()),
       'health': ((percentage * 0.75).round()),
       'dependency': ((percentage * 0.4).round()),
     };
+  }
+
+  Future<void> _saveQuizResult() async {
+    try {
+      setState(() => _isSaving = true);
+
+      // Get current user
+      final user = _supabase.auth.currentUser;
+      if (user == null) {
+        throw Exception('User not logged in');
+      }
+
+      // Calculate risk level
+      final riskData = _getRiskLevel();
+      final riskLevel = riskData['level'].toString();
+
+      // Create quiz result
+      final quizResult = QuizResult(
+        id: const Uuid().v4(),
+        userId: user.id,
+        quizId: 'default-assessment',
+        totalScore: widget.totalScore,
+        maxScore: widget.maxScore,
+        percentage: (widget.totalScore / widget.maxScore * 100).toInt(),
+        riskLevel: riskLevel,
+        completedAt: DateTime.now(),
+      );
+
+      // Save to database
+      await _quizService.saveQuizResult(quizResult);
+
+      setState(() {
+        _isSaving = false;
+        _isSaved = true;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Hasil quiz berhasil disimpan!'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() => _isSaving = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Gagal menyimpan hasil: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -130,22 +199,22 @@ class ResultScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Rincian Skor',
+                    'Analisis Faktor Risiko',
                     style: AppTextStyles.h4,
                   ),
                   const SizedBox(height: 20),
-                  _buildScoreItem(
-                    'Frekuensi Penggunaan',
+                  _buildRiskIndicator(
+                    'Indikator Frekuensi',
                     breakdown['frequency']!,
                   ),
                   const SizedBox(height: 16),
-                  _buildScoreItem(
-                    'Dampak Kesehatan',
+                  _buildRiskIndicator(
+                    'Indikator Dampak',
                     breakdown['health']!,
                   ),
                   const SizedBox(height: 16),
-                  _buildScoreItem(
-                    'Ketergantungan',
+                  _buildRiskIndicator(
+                    'Indikator Ketergantungan',
                     breakdown['dependency']!,
                   ),
                 ],
@@ -188,15 +257,7 @@ class ResultScreen extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton(
-                onPressed: () {
-                  // Save result functionality
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Hasil berhasil disimpan'),
-                      backgroundColor: AppColors.success,
-                    ),
-                  );
-                },
+                onPressed: _isSaved || _isSaving ? null : _saveQuizResult,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.primary,
                   side: const BorderSide(color: AppColors.primary),
@@ -205,7 +266,13 @@ class ResultScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text('Simpan Hasil'),
+                child: _isSaving
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(_isSaved ? 'Sudah Tersimpan ✓' : 'Simpan Hasil'),
               ),
             ),
             const SizedBox(height: 12),
@@ -240,7 +307,7 @@ class ResultScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildScoreItem(String label, int percentage) {
+  Widget _buildRiskIndicator(String label, int percentage) {
     Color barColor;
     if (percentage <= 30) {
       barColor = AppColors.riskLow;

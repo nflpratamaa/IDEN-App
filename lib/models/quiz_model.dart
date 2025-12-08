@@ -71,20 +71,26 @@ class QuizQuestion {
 class QuizResult {
   final String id;
   final String userId;
+  final String? quizId;  // Optional quiz ID
   final int totalScore; // 0-100
+  final int? maxScore;   // Max possible score
+  final int? percentage; // Percentage score
   final String riskLevel; // low, medium, high, extreme
-  final Map<String, dynamic> answers; // {questionId: answer}
+  final Map<String, dynamic>? answers; // {questionId: answer}
   final DateTime completedAt;
-  final List<String> recommendations;
+  final List<String>? recommendations;
 
   QuizResult({
     required this.id,
     required this.userId,
+    this.quizId,
     required this.totalScore,
+    this.maxScore,
+    this.percentage,
     required this.riskLevel,
-    required this.answers,
+    this.answers,
     required this.completedAt,
-    required this.recommendations,
+    this.recommendations,
   });
 
   /// Convert ke Map untuk Supabase
@@ -92,11 +98,14 @@ class QuizResult {
     return {
       'id': id,
       'user_id': userId,
+      if (quizId != null) 'quiz_id': quizId,
       'total_score': totalScore,
+      if (maxScore != null) 'max_score': maxScore,
+      if (percentage != null) 'percentage': percentage,
       'risk_level': riskLevel,
-      'answers': answers,
+      if (answers != null) 'answers': answers,
       'completed_at': completedAt.toIso8601String(),
-      'recommendations': recommendations,
+      if (recommendations != null) 'recommendations': recommendations,
     };
   }
 
@@ -105,11 +114,16 @@ class QuizResult {
     return QuizResult(
       id: map['id'].toString(),
       userId: map['user_id'] ?? map['userId'],
+      quizId: map['quiz_id'],
       totalScore: map['total_score'] ?? map['totalScore'] ?? 0,
+      maxScore: map['max_score'] ?? map['maxScore'],
+      percentage: map['percentage'],
       riskLevel: map['risk_level'] ?? map['riskLevel'] ?? 'low',
-      answers: Map<String, dynamic>.from(map['answers'] ?? {}),
+      answers: map['answers'] != null ? Map<String, dynamic>.from(map['answers']) : null,
       completedAt: DateTime.parse(map['completed_at'] ?? map['completedAt']),
-      recommendations: List<String>.from(map['recommendations'] ?? []),
+      recommendations: map['recommendations'] != null 
+          ? List<String>.from(map['recommendations']) 
+          : null,
     );
   }
 }

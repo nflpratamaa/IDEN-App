@@ -10,6 +10,7 @@ import '../../models/quiz_model.dart';
 import '../../models/article_model.dart';
 import '../../services/quiz_service.dart';
 import 'article_detail_screen.dart';
+import 'quiz_result_detail_screen.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -293,27 +294,48 @@ class _HistoryScreenState extends State<HistoryScreen>
   }
 
   Widget _buildQuizHistoryCard(QuizResult result) {
-    // Determine risk level and color based on score
-    String riskLevel;
+    // Use the risk level stored in database instead of recalculating
+    String displayRiskLevel;
     Color riskColor;
-    if (result.totalScore >= 70) {
-      riskLevel = 'TINGGI';
-      riskColor = AppColors.riskHigh;
-    } else if (result.totalScore >= 40) {
-      riskLevel = 'SEDANG';
-      riskColor = AppColors.riskMedium;
-    } else {
-      riskLevel = 'RENDAH';
-      riskColor = AppColors.riskLow;
+    
+    switch (result.riskLevel.toLowerCase()) {
+      case 'low':
+        displayRiskLevel = 'RENDAH';
+        riskColor = AppColors.riskLow;
+        break;
+      case 'medium':
+        displayRiskLevel = 'SEDANG';
+        riskColor = AppColors.riskMedium;
+        break;
+      case 'high':
+        displayRiskLevel = 'TINGGI';
+        riskColor = AppColors.riskHigh;
+        break;
+      case 'extreme':
+        displayRiskLevel = 'EKSTREM';
+        riskColor = AppColors.riskExtreme;
+        break;
+      default:
+        displayRiskLevel = 'SEDANG';
+        riskColor = AppColors.riskMedium;
     }
 
-    // Format date
-    final dateFormat = DateFormat('dd MMM yyyy', 'id_ID');
+    // Format date (removed locale to avoid initialization error on Flutter Web)
+    final dateFormat = DateFormat('dd MMM yyyy');
     final timeFormat = DateFormat('HH:mm');
     final date = dateFormat.format(result.completedAt);
     final time = timeFormat.format(result.completedAt);
 
-    return Container(
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => QuizResultDetailScreen(result: result),
+          ),
+        );
+      },
+      child: Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -365,7 +387,7 @@ class _HistoryScreenState extends State<HistoryScreen>
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        riskLevel,
+                        displayRiskLevel,
                         style: AppTextStyles.bodySmall.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.w600,
@@ -397,7 +419,7 @@ class _HistoryScreenState extends State<HistoryScreen>
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      'Skor: ${result.totalScore}%',
+                      'Level: ${result.totalScore}%',
                       style: AppTextStyles.bodySmall.copyWith(
                         color: AppColors.textSecondary,
                       ),
@@ -409,6 +431,7 @@ class _HistoryScreenState extends State<HistoryScreen>
           ),
         ],
       ),
+    ),
     );
   }
 

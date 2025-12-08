@@ -29,6 +29,39 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         'Akses ke pusat bantuan',
       ],
     },
+    {
+      'icon': Icons.library_books,
+      'title': 'Jelajahi\nKatalog Artikel',
+      'description':
+          'Baca ratusan artikel edukasi tentang jenis narkotika, dampak kesehatan, dan cara pencegahan.',
+      'features': [
+        'Artikel terkurasi oleh profesional',
+        'Filter berdasarkan kategori',
+        'Simpan artikel favorit',
+      ],
+    },
+    {
+      'icon': Icons.assessment,
+      'title': 'Penilaian\nRisiko Pribadi',
+      'description':
+          'Ikuti penilaian risiko anonim untuk mengetahui tingkat risiko Anda terhadap penyalahgunaan narkoba.',
+      'features': [
+        '100% anonim dan rahasia',
+        'Hasil berdasarkan riset ilmiah',
+        'Rekomendasi langkah selanjutnya',
+      ],
+    },
+    {
+      'icon': Icons.history,
+      'title': 'Pantau\nProgres Anda',
+      'description':
+          'Lihat riwayat penilaian dan artikel yang sudah Anda baca untuk tracking perkembangan.',
+      'features': [
+        'Riwayat penilaian lengkap',
+        'Artikel yang pernah dibaca',
+        'Bookmark artikel penting',
+      ],
+    },
   ];
 
   void _navigateToLogin() {
@@ -160,11 +193,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               padding: const EdgeInsets.all(24.0),
               child: Column(
                 children: [
-                  // Start Button
+                  // Next/Start Button
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: _navigateToLogin,
+                      onPressed: () {
+                        if (_currentPage < _onboardingData.length - 1) {
+                          _pageController.nextPage(
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
+                        } else {
+                          _navigateToLogin();
+                        }
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
@@ -174,11 +216,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         ),
                       ),
                       child: Text(
-                        'Mulai',
+                        _currentPage == _onboardingData.length - 1
+                            ? 'Mulai'
+                            : 'Lanjut',
                         style: AppTextStyles.button,
                       ),
                     ),
                   ),
+                  // Previous Button (show if not on first page)
+                  if (_currentPage > 0) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () {
+                          _pageController.previousPage(
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
+                        },
+                        child: Text(
+                          'Kembali',
+                          style: AppTextStyles.bodyMedium.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

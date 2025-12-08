@@ -2,8 +2,12 @@
 /// Menampilkan: statistik pengguna, aktivitas quiz, artikel populer, export data
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
+import '../../services/pdf_export_service.dart';
+import '../../services/csv_export_service.dart';
+import 'package:share_plus/share_plus.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -22,7 +26,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   double _avgQuizScore = 0.0;
   int _totalArticlesRead = 0;
   
+  // Data for export
+  List<Map<String, dynamic>> _usersData = [];
+  List<Map<String, dynamic>> _quizResults = [];
+  
   bool _isLoading = true;
+  bool _isExporting = false;
 
   @override
   void initState() {
@@ -57,7 +66,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       // Count total articles read
       int totalArticlesRead = 0;
       for (var user in usersData) {
-        totalArticlesRead += (user['articlesRead'] as int? ?? 0);
+        totalArticlesRead += (user['articles_read'] as int? ?? 0);
       }
 
       setState(() {
@@ -66,6 +75,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _totalQuizAttempts = quizResults.length;
         _avgQuizScore = avgScore;
         _totalArticlesRead = totalArticlesRead;
+        _usersData = List<Map<String, dynamic>>.from(usersData);
+        _quizResults = List<Map<String, dynamic>>.from(quizResults);
         _isLoading = false;
       });
 
@@ -141,18 +152,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     children: [
                       Expanded(
                         child: _buildStatCard(
-                          'Total Quiz Dikerjakan',
+                          'Total Penilaian',
                           _totalQuizAttempts.toString(),
-                          Icons.quiz,
+                          Icons.assessment,
                           AppColors.accent,
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: _buildStatCard(
-                          'Nilai Rata-rata',
+                          'Level Risiko Rata-rata',
                           _avgQuizScore.toStringAsFixed(1),
-                          Icons.trending_up,
+                          Icons.analytics,
                           AppColors.warning,
                         ),
                       ),
@@ -198,13 +209,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         _buildActivityRow(
                           'Engagement Rate',
                           '${(_activeUsers / (_totalUsers > 0 ? _totalUsers : 1) * 100).toStringAsFixed(1)}%',
-                          'Persentase pengguna yang telah menyelesaikan quiz',
+                          'Persentase pengguna yang telah menyelesaikan penilaian',
                         ),
                         const Divider(height: 24),
                         _buildActivityRow(
-                          'Quiz Per Pengguna',
+                          'Penilaian Per Pengguna',
                           (_totalQuizAttempts / (_activeUsers > 0 ? _activeUsers : 1)).toStringAsFixed(1),
-                          'Rata-rata quiz yang dikerjakan per pengguna aktif',
+                          'Rata-rata penilaian yang dikerjakan per pengguna aktif',
                         ),
                         const Divider(height: 24),
                         _buildActivityRow(
@@ -232,7 +243,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     'Unduh laporan lengkap dalam format PDF',
                     Icons.picture_as_pdf,
                     Colors.red,
-                    () => _showExportDialog('PDF'),
+                    _isExporting ? null : _exportPdf,
                   ),
                   const SizedBox(height: 12),
 
@@ -241,7 +252,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     'Unduh data pengguna dan aktivitas dalam format CSV',
                     Icons.table_chart,
                     Colors.green,
-                    () => _showExportDialog('CSV'),
+                    _isExporting ? null : _exportCsv,
                   ),
 
                   const SizedBox(height: 24),
@@ -349,7 +360,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     String subtitle,
     IconData icon,
     Color color,
-    VoidCallback onPressed,
+    VoidCallback? onPressed,
   ) {
     return Material(
       color: Colors.white,
@@ -371,7 +382,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   color: color.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(icon, color: color, size: 24),
+                child: _isExporting
+                    ? SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation(color),
+                        ),
+                      )
+                    : Icon(icon, color: color, size: 24),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -394,7 +414,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   ],
                 ),
               ),
-              Icon(Icons.arrow_forward, color: color),
+              Icon(
+                Icons.arrow_forward,
+                color: _isExporting ? Colors.grey : color,
+              ),
             ],
           ),
         ),
@@ -402,21 +425,97 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  void _showExportDialog(String format) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Export $format'),
-        content: Text(
-          'Fitur export $format akan segera tersedia.\n\nSaat ini, Anda dapat melihat statistik lengkap di halaman ini dan menggunakan tools database Supabase untuk export data lebih lanjut.',
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+  Future<void> _exportPdf() async {
+    try {
+      setState(() => _isExporting = true);
+      print('📄 Generating PDF report...');
+
+      final result = await PdfExportService.generateAnalyticsReport(
+        totalUsers: _totalUsers,
+        activeUsers: _activeUsers,
+        totalQuizAttempts: _totalQuizAttempts,
+        avgQuizScore: _avgQuizScore,
+        totalArticlesRead: _totalArticlesRead,
+        usersData: _usersData,
+        quizResults: _quizResults,
+        adminName: 'Admin IDEN',
+      );
+
+      setState(() => _isExporting = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(kIsWeb 
+                ? 'PDF berhasil di-download!'
+                : 'PDF berhasil di-export!\nLokasi: $result'),
+            duration: const Duration(seconds: 5),
+            action: !kIsWeb ? SnackBarAction(
+              label: 'Share',
+              onPressed: () async {
+                await Share.shareXFiles([XFile(result)]);
+              },
+            ) : null,
           ),
-        ],
-      ),
-    );
+        );
+
+        print('✅ PDF exported: $result');
+      }
+    } catch (e) {
+      setState(() => _isExporting = false);
+      print('❌ Error exporting PDF: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Gagal export PDF: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _exportCsv() async {
+    try {
+      setState(() => _isExporting = true);
+      print('📊 Generating CSV export...');
+
+      final result = await CsvExportService.exportAllData(
+        usersData: _usersData,
+        quizResults: _quizResults,
+      );
+
+      setState(() => _isExporting = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(kIsWeb
+                ? '✅ CSV berhasil di-download!'
+                : '✅ CSV berhasil di-export!\nLokasi: $result'),
+            duration: const Duration(seconds: 5),
+            action: !kIsWeb ? SnackBarAction(
+              label: 'Share',
+              onPressed: () async {
+                await Share.shareXFiles([XFile(result)]);
+              },
+            ) : null,
+          ),
+        );
+
+        print('✅ CSV exported: $result');
+      }
+    } catch (e) {
+      setState(() => _isExporting = false);
+      print('❌ Error exporting CSV: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Gagal export CSV: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }

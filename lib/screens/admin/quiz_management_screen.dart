@@ -319,8 +319,9 @@ class _QuizManagementScreenState extends State<QuizManagementScreen> {
                 TextField(
                   controller: weightController,
                   decoration: const InputDecoration(
-                    labelText: 'Bobot (Weight)',
+                    labelText: 'Bobot (0-100)',
                     border: OutlineInputBorder(),
+                    helperText: 'Masukkan angka antara 0-100 untuk scoring',
                   ),
                   keyboardType: TextInputType.number,
                 ),
@@ -365,13 +366,24 @@ class _QuizManagementScreenState extends State<QuizManagementScreen> {
                       .map((c) => c.text)
                       .toList();
                   
+                  final weight = int.tryParse(weightController.text) ?? 1;
+                  
+                  // Validate weight (0-100)
+                  if (weight < 0 || weight > 100) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Bobot harus antara 0-100')),
+                    );
+                    return;
+                  }
+                  
                   final quiz = QuizQuestion(
                     id: const Uuid().v4(),
                     question: questionController.text,
                     type: typeController.text,
                     category: categoryController.text,
                     options: options,
-                    weight: int.tryParse(weightController.text) ?? 10,
+                    weight: weight,
+                    orderIndex: 0, // Default order
                   );
                   
                   await _supabase.from('quizzes').insert(quiz.toMap());
@@ -452,8 +464,9 @@ class _QuizManagementScreenState extends State<QuizManagementScreen> {
                 TextField(
                   controller: weightController,
                   decoration: const InputDecoration(
-                    labelText: 'Bobot (Weight)',
+                    labelText: 'Bobot (0-100)',
                     border: OutlineInputBorder(),
+                    helperText: 'Masukkan angka antara 0-100 untuk scoring',
                   ),
                   keyboardType: TextInputType.number,
                 ),
@@ -498,16 +511,33 @@ class _QuizManagementScreenState extends State<QuizManagementScreen> {
                       .map((c) => c.text)
                       .toList();
                   
+                  final weight = int.tryParse(weightController.text) ?? quiz.weight;
+                  print('🔍 Weight value: $weight (from text: "${weightController.text}")');
+                  
+                  // Validate weight (0-100)
+                  if (weight < 0 || weight > 100) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Bobot harus antara 0-100')),
+                    );
+                    return;
+                  }
+                  
                   final updatedQuiz = QuizQuestion(
                     id: quiz.id,
                     question: questionController.text,
                     type: typeController.text,
                     category: categoryController.text,
                     options: options,
-                    weight: int.tryParse(weightController.text) ?? quiz.weight,
+                    weight: weight,
+                    orderIndex: quiz.orderIndex ?? 0, // Fix: default to 0
                   );
                   
-                  await _supabase.from('quizzes').update(updatedQuiz.toMap()).eq('id', quiz.id);
+                  // Remove null values from map
+                  final updateData = updatedQuiz.toMap();
+                  updateData.removeWhere((key, value) => value == null);
+                  
+                  print('🔍 Sending to DB: $updateData');
+                  await _supabase.from('quizzes').update(updateData).eq('id', quiz.id);
                   print('✅ Pertanyaan quiz berhasil diupdate');
                   
                   Navigator.pop(context);

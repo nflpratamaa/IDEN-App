@@ -54,17 +54,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .eq('id', user.id)
           .single();
 
+      // Count quiz results
+      final quizResults = await _supabase
+          .from('quiz_results')
+          .select('id')
+          .eq('user_id', user.id);
+      final quizCount = (quizResults as List).length;
+
+      // Count read history
+      final readHistory = await _supabase
+          .from('read_history')
+          .select('id')
+          .eq('user_id', user.id);
+      final readCount = (readHistory as List).length;
+
+      // Count bookmarks
+      final bookmarks = await _supabase
+          .from('bookmarks')
+          .select('id')
+          .eq('user_id', user.id);
+      final bookmarkCount = (bookmarks as List).length;
+
       if (mounted) {
         setState(() {
           _userName = userData['name'] ?? 'Pengguna IDEN';
           _userEmail = userData['email'] ?? user.email ?? 'user@iden.com';
           _profileImageUrl = userData['profile_image_url'];
-          _quizzesTaken = userData['quizzesTaken'] ?? 0;
-          _articlesRead = userData['articlesRead'] ?? 0;
-          _savedItems = userData['savedItems'] ?? 0;
+          _quizzesTaken = quizCount;
+          _articlesRead = readCount;
+          _savedItems = bookmarkCount;
           _isLoading = false;
         });
-        print('✅ Profile loaded successfully');
+        print('✅ Profile loaded - Quiz: $quizCount, Read: $readCount, Saved: $bookmarkCount');
       }
     } catch (e) {
       print('❌ Failed to load profile: $e');
@@ -294,9 +315,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           IconButton(
             icon: const Icon(Icons.edit),
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Fitur Edit Profil coming soon')),
-              );
+              _showEditNameDialog();
             },
           ),
         ],
@@ -423,13 +442,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Icons.lock_outline,
                   'Ubah Password',
                   'Perbarui password Anda',
-                  () {},
+                  () => _showChangePasswordDialog(),
                 ),
                 _buildMenuItem(
                   Icons.email_outlined,
                   'Email & Notifikasi',
                   'Kelola preferensi email',
-                  () {},
+                  () => _showEmailSettingsDialog(),
                 ),
               ],
             ),
@@ -451,7 +470,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Icons.language,
                   'Bahasa',
                   'Indonesia',
-                  () {},
+                  () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Hanya tersedia dalam Bahasa Indonesia')),
+                    );
+                  },
                 ),
               ],
             ),
@@ -462,25 +485,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Icons.help_outline,
                   'Pusat Bantuan',
                   'FAQ dan panduan',
-                  () {},
+                  () => _showHelpCenter(),
                 ),
                 _buildMenuItem(
                   Icons.privacy_tip_outlined,
                   'Kebijakan Privasi',
                   'Lihat kebijakan privasi',
-                  () {},
+                  () => _showPrivacyPolicy(),
                 ),
                 _buildMenuItem(
                   Icons.description_outlined,
                   'Syarat & Ketentuan',
                   'Baca syarat penggunaan',
-                  () {},
+                  () => _showTermsConditions(),
                 ),
                 _buildMenuItem(
                   Icons.info_outline,
                   'Tentang IDEN',
                   'Versi 1.0.0',
-                  () {},
+                  () => _showAboutApp(),
                 ),
                 _buildMenuItem(
                   Icons.admin_panel_settings,
@@ -681,6 +704,469 @@ class _ProfileScreenState extends State<ProfileScreen> {
               'Keluar',
               style: TextStyle(color: AppColors.error),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChangePasswordDialog() {
+    final TextEditingController currentPasswordController = TextEditingController();
+    final TextEditingController newPasswordController = TextEditingController();
+    final TextEditingController confirmPasswordController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ubah Password'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: currentPasswordController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Password Saat Ini',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock_outline),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: newPasswordController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Password Baru',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: confirmPasswordController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Konfirmasi Password Baru',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final currentPassword = currentPasswordController.text.trim();
+              final newPassword = newPasswordController.text.trim();
+              final confirmPassword = confirmPasswordController.text.trim();
+
+              if (currentPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Semua field harus diisi')),
+                );
+                return;
+              }
+
+              if (newPassword != confirmPassword) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Password baru tidak cocok')),
+                );
+                return;
+              }
+
+              if (newPassword.length < 6) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Password minimal 6 karakter')),
+                );
+                return;
+              }
+
+              try {
+                // Update password via Supabase Auth
+                await _supabase.auth.updateUser(
+                  UserAttributes(password: newPassword),
+                );
+
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Password berhasil diubah'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Gagal mengubah password: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Ubah Password'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEmailSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Email & Notifikasi'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Email terdaftar: $_userEmail'),
+            const SizedBox(height: 16),
+            const Text('Pengaturan Notifikasi Email:'),
+            CheckboxListTile(
+              title: const Text('Notifikasi Quiz'),
+              subtitle: const Text('Terima reminder quiz'),
+              value: true,
+              onChanged: (value) {},
+            ),
+            CheckboxListTile(
+              title: const Text('Artikel Baru'),
+              subtitle: const Text('Info artikel terbaru'),
+              value: true,
+              onChanged: (value) {},
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Tutup'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showHelpCenter() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.help_outline, color: Colors.white),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Pusat Bantuan',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _buildFaqItem(
+                    'Apa itu IDEN?',
+                    'IDEN adalah aplikasi edukasi tentang bahaya narkotika dan pencegahan penyalahgunaan narkoba untuk remaja dan masyarakat umum.',
+                  ),
+                  _buildFaqItem(
+                    'Bagaimana cara menggunakan aplikasi?',
+                    'Anda bisa membaca artikel edukasi, mengikuti quiz penilaian risiko, dan menyimpan artikel favorit untuk dibaca kembali.',
+                  ),
+                  _buildFaqItem(
+                    'Apakah quiz saya bersifat anonim?',
+                    'Ya, hasil quiz Anda hanya dapat dilihat oleh Anda sendiri dan tidak dibagikan kepada pihak lain.',
+                  ),
+                  _buildFaqItem(
+                    'Bagaimana cara menghubungi dukungan?',
+                    'Anda bisa menghubungi kami melalui email support@iden.app atau langsung dari menu "Kontak Kami".',
+                  ),
+                  _buildFaqItem(
+                    'Apakah data saya aman?',
+                    'Ya, semua data Anda terenkripsi dan tersimpan dengan aman. Kami tidak membagikan informasi pribadi Anda kepada pihak ketiga.',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFaqItem(String question, String answer) {
+    return ExpansionTile(
+      title: Text(
+        question,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            answer,
+            style: const TextStyle(color: AppColors.textSecondary),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showPrivacyPolicy() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.8,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.privacy_tip_outlined, color: Colors.white),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Kebijakan Privasi',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.all(16),
+                children: const [
+                  Text(
+                    'Kebijakan Privasi IDEN',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    '1. Pengumpulan Data\n\n'
+                    'Kami mengumpulkan informasi yang Anda berikan saat mendaftar, termasuk nama, email, dan data profil lainnya.\n\n'
+                    '2. Penggunaan Data\n\n'
+                    'Data Anda digunakan untuk:\n'
+                    '• Menyediakan dan meningkatkan layanan aplikasi\n'
+                    '• Mengirimkan notifikasi dan pembaruan\n'
+                    '• Menganalisis penggunaan aplikasi\n\n'
+                    '3. Keamanan Data\n\n'
+                    'Kami menggunakan enkripsi dan praktik keamanan terbaik untuk melindungi informasi Anda.\n\n'
+                    '4. Berbagi Data\n\n'
+                    'Kami tidak membagikan data pribadi Anda kepada pihak ketiga tanpa persetujuan Anda.\n\n'
+                    '5. Hak Anda\n\n'
+                    'Anda memiliki hak untuk mengakses, mengubah, atau menghapus data pribadi Anda kapan saja.\n\n'
+                    '6. Perubahan Kebijakan\n\n'
+                    'Kami dapat memperbarui kebijakan privasi ini dari waktu ke waktu. Perubahan akan diinformasikan melalui aplikasi.\n\n'
+                    'Terakhir diperbarui: Desember 2025',
+                    style: TextStyle(height: 1.5),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showTermsConditions() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.8,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.description_outlined, color: Colors.white),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Syarat & Ketentuan',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.all(16),
+                children: const [
+                  Text(
+                    'Syarat & Ketentuan Penggunaan',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    '1. Penerimaan Syarat\n\n'
+                    'Dengan menggunakan aplikasi IDEN, Anda setuju untuk mematuhi syarat dan ketentuan ini.\n\n'
+                    '2. Penggunaan Aplikasi\n\n'
+                    'Aplikasi ini ditujukan untuk tujuan edukasi dan pencegahan penyalahgunaan narkotika. Anda setuju untuk menggunakan aplikasi secara bertanggung jawab.\n\n'
+                    '3. Akun Pengguna\n\n'
+                    'Anda bertanggung jawab untuk menjaga kerahasiaan akun dan password Anda.\n\n'
+                    '4. Konten\n\n'
+                    'Konten dalam aplikasi disediakan untuk tujuan informasi dan edukasi. Kami berusaha untuk memastikan keakuratan informasi.\n\n'
+                    '5. Larangan\n\n'
+                    'Anda dilarang:\n'
+                    '• Menyalahgunakan layanan atau konten\n'
+                    '• Mengunggah konten yang melanggar hukum\n'
+                    '• Mengakses akun orang lain tanpa izin\n\n'
+                    '6. Penghentian Layanan\n\n'
+                    'Kami berhak untuk menghentikan atau membatasi akses Anda jika melanggar syarat ini.\n\n'
+                    '7. Perubahan Syarat\n\n'
+                    'Kami dapat mengubah syarat dan ketentuan ini kapan saja dengan pemberitahuan kepada pengguna.\n\n'
+                    'Terakhir diperbarui: Desember 2025',
+                    style: TextStyle(height: 1.5),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAboutApp() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.info, color: Colors.white),
+            ),
+            const SizedBox(width: 12),
+            const Text('Tentang IDEN'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'IDEN - Informasi & Deteksi Narkotika',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            const Text('Versi 1.0.0'),
+            const SizedBox(height: 16),
+            const Text(
+              'Aplikasi edukasi untuk pencegahan penyalahgunaan narkotika di Indonesia.',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+            const Row(
+              children: [
+                Icon(Icons.copyright, size: 16, color: AppColors.textLight),
+                SizedBox(width: 8),
+                Text(
+                  '2025 IDEN App',
+                  style: TextStyle(color: AppColors.textLight),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Row(
+              children: [
+                Icon(Icons.email, size: 16, color: AppColors.textLight),
+                SizedBox(width: 8),
+                Text(
+                  'support@iden.app',
+                  style: TextStyle(color: AppColors.textLight),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Tutup'),
           ),
         ],
       ),

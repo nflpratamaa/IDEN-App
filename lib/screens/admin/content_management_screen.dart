@@ -2,11 +2,9 @@
 /// 2 tabs: Articles (list artikel dengan edit/delete) dan Catalog (list drugs)
 /// Button: tambah artikel/drug baru, edit, delete dengan konfirmasi
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // for kIsWeb
 import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import '../../services/article_service.dart';
@@ -148,7 +146,6 @@ class _ContentManagementScreenState extends State<ContentManagementScreen> {
           article.category,
           '${article.readCount} views',
           Icons.article,
-          imageUrl: article.imageUrl,
           onEdit: () => _showEditArticleDialog(article),
           onDelete: () => _deleteArticle(article.id),
         );
@@ -214,7 +211,6 @@ class _ContentManagementScreenState extends State<ContentManagementScreen> {
           drug.category,
           'Risiko: ${drug.riskLevel}',
           Icons.medication,
-          imageUrl: drug.imageUrl,
           onEdit: () => _showEditDrugDialog(drug),
           onDelete: () => _deleteDrug(drug.id),
         );
@@ -268,7 +264,6 @@ class _ContentManagementScreenState extends State<ContentManagementScreen> {
     String category,
     String info,
     IconData icon, {
-    String? imageUrl,
     VoidCallback? onDelete,
     VoidCallback? onEdit,
   }) {
@@ -288,38 +283,13 @@ class _ContentManagementScreenState extends State<ContentManagementScreen> {
       ),
       child: Row(
         children: [
-          // Image or Icon Thumbnail
           Container(
-            width: 60,
-            height: 60,
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: AppColors.primary.withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: imageUrl != null && imageUrl.isNotEmpty
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Icon(icon, color: AppColors.primary, size: 24);
-                      },
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) return child;
-                        return Center(
-                          child: CircularProgressIndicator(
-                            value: loadingProgress.expectedTotalBytes != null
-                                ? loadingProgress.cumulativeBytesLoaded /
-                                    loadingProgress.expectedTotalBytes!
-                                : null,
-                            strokeWidth: 2,
-                          ),
-                        );
-                      },
-                    ),
-                  )
-                : Icon(icon, color: AppColors.primary, size: 24),
+            child: Icon(icon, color: AppColors.primary, size: 24),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -506,11 +476,8 @@ class _ArticleDialogState extends State<_ArticleDialog> {
   late TextEditingController _imageUrlController;
   
   String _imageMode = 'url'; // 'url' or 'gallery'
-  XFile? _selectedImage; // Changed to XFile for web compatibility
-  Uint8List? _selectedImageBytes; // For preview
+  File? _selectedImage;
   final ImagePicker _picker = ImagePicker();
-  final _supabase = Supabase.instance.client;
-  bool _isUploading = false;
 
   @override
   void initState() {
@@ -542,10 +509,9 @@ class _ArticleDialogState extends State<_ArticleDialog> {
       );
       
       if (image != null) {
-        final bytes = await image.readAsBytes();
         setState(() {
-          _selectedImage = image;
-          _selectedImageBytes = bytes;
+          _selectedImage = File(image.path);
+          _imageUrlController.text = image.path;
         });
       }
     } catch (e) {
@@ -557,42 +523,12 @@ class _ArticleDialogState extends State<_ArticleDialog> {
     }
   }
 
-  Future<String?> _uploadImageToStorage(XFile image, String folder) async {
-    try {
-      final bytes = await image.readAsBytes();
-      String ext = 'jpg';
-      final path = image.path.toLowerCase();
-      
-      if (path.contains('.png')) ext = 'png';
-      else if (path.contains('.webp')) ext = 'webp';
-      
-      final filename = '${const Uuid().v4()}.$ext';
-      final filepath = '$folder/$filename';
-      
-      await _supabase.storage.from('content-images').uploadBinary(
-        filepath,
-        bytes,
-        fileOptions: FileOptions(
-          contentType: ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg',
-          cacheControl: '3600',
-        ),
-      );
-      
-      return _supabase.storage.from('content-images').getPublicUrl(filepath);
-    } catch (e) {
-      print('❌ Upload failed: $e');
-      rethrow;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(widget.article == null ? 'Tambah Artikel' : 'Edit Artikel'),
-      content: SizedBox(
-        width: 500,
-        child: SingleChildScrollView(
-          child: Column(
+      content: SingleChildScrollView(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -644,21 +580,22 @@ class _ArticleDialogState extends State<_ArticleDialog> {
               children: [
                 Expanded(
                   child: RadioListTile<String>(
-                    title: const Text('URL', style: TextStyle(fontSize: 14)),
+                    title: const Text('URL'),
                     value: 'url',
                     groupValue: _imageMode,
                     onChanged: (value) {
                       setState(() {
                         _imageMode = value!;
                         _selectedImage = null;
-                        _selectedImageBytes = null;
                       });
                     },
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
                   ),
                 ),
                 Expanded(
                   child: RadioListTile<String>(
-                    title: const Text('Galeri', style: TextStyle(fontSize: 14)),
+                    title: const Text('Galeri'),
                     value: 'gallery',
                     groupValue: _imageMode,
                     onChanged: (value) {
@@ -666,6 +603,8 @@ class _ArticleDialogState extends State<_ArticleDialog> {
                         _imageMode = value!;
                       });
                     },
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
                   ),
                 ),
               ],
@@ -715,7 +654,7 @@ class _ArticleDialogState extends State<_ArticleDialog> {
                   foregroundColor: Colors.white,
                 ),
               ),
-              if (_selectedImageBytes != null) ...[
+              if (_selectedImage != null) ...[
                 const SizedBox(height: 8),
                 Container(
                   width: double.infinity,
@@ -726,8 +665,8 @@ class _ArticleDialogState extends State<_ArticleDialog> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.memory(
-                      _selectedImageBytes!,
+                    child: Image.file(
+                      _selectedImage!,
                       fit: BoxFit.cover,
                     ),
                   ),
@@ -735,7 +674,6 @@ class _ArticleDialogState extends State<_ArticleDialog> {
               ],
             ],
           ],
-          ),
         ),
       ),
       actions: [
@@ -755,55 +693,21 @@ class _ArticleDialogState extends State<_ArticleDialog> {
               return;
             }
 
-            // Upload image if gallery mode
+            // Note: Untuk gallery mode, di production harus upload ke storage dulu
+            // Disini kita simpan path lokal atau bisa kosongkan
             String imageUrl = _imageUrlController.text;
             if (_imageMode == 'gallery' && _selectedImage != null) {
-              setState(() => _isUploading = true);
+              // TODO: Upload to Supabase Storage atau cloud storage lainnya
+              // Untuk sementara gunakan path lokal (tidak akan work di production)
+              imageUrl = _selectedImage!.path;
               
-              // Show uploading notification
+              // Warning untuk development
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Row(
-                    children: [
-                      SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      ),
-                      SizedBox(width: 12),
-                      Text('Mengupload gambar...'),
-                    ],
-                  ),
-                  duration: Duration(seconds: 2),
+                  content: Text('Note: Gambar dari galeri belum terupload ke server. Implementasikan Supabase Storage untuk production.'),
+                  duration: Duration(seconds: 3),
                 ),
               );
-              
-              try {
-                imageUrl = await _uploadImageToStorage(_selectedImage!, 'articles') ?? '';
-                setState(() => _isUploading = false);
-                
-                // Show success notification
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('✅ Gambar berhasil diupload'),
-                      backgroundColor: Colors.green,
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                }
-              } catch (e) {
-                setState(() => _isUploading = false);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Gagal upload gambar: $e')),
-                  );
-                }
-                return;
-              }
             }
 
             final article = ArticleModel(
@@ -822,13 +726,7 @@ class _ArticleDialogState extends State<_ArticleDialog> {
             Navigator.pop(context);
             widget.onSave(article);
           },
-          child: _isUploading 
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(widget.article == null ? 'Tambah' : 'Simpan'),
+          child: Text(widget.article == null ? 'Tambah' : 'Simpan'),
         ),
       ],
     );
@@ -857,11 +755,8 @@ class _DrugDialogState extends State<_DrugDialog> {
   late TextEditingController _imageUrlController;
 
   String _imageMode = 'url'; // 'url' atau 'gallery'
-  XFile? _selectedImage; // Changed to XFile for web compatibility
-  Uint8List? _selectedImageBytes; // For preview
+  File? _selectedImage;
   final ImagePicker _picker = ImagePicker();
-  final _supabase = Supabase.instance.client;
-  bool _isUploading = false;
 
   @override
   void initState() {
@@ -893,10 +788,9 @@ class _DrugDialogState extends State<_DrugDialog> {
       );
 
       if (image != null) {
-        final bytes = await image.readAsBytes();
         setState(() {
-          _selectedImage = image;
-          _selectedImageBytes = bytes;
+          _selectedImage = File(image.path);
+          _imageUrlController.text = image.path;
         });
       }
     } catch (e) {
@@ -908,42 +802,12 @@ class _DrugDialogState extends State<_DrugDialog> {
     }
   }
 
-  Future<String?> _uploadImageToStorage(XFile image, String folder) async {
-    try {
-      final bytes = await image.readAsBytes();
-      String ext = 'jpg';
-      final path = image.path.toLowerCase();
-      
-      if (path.contains('.png')) ext = 'png';
-      else if (path.contains('.webp')) ext = 'webp';
-      
-      final filename = '${const Uuid().v4()}.$ext';
-      final filepath = '$folder/$filename';
-      
-      await _supabase.storage.from('content-images').uploadBinary(
-        filepath,
-        bytes,
-        fileOptions: FileOptions(
-          contentType: ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg',
-          cacheControl: '3600',
-        ),
-      );
-      
-      return _supabase.storage.from('content-images').getPublicUrl(filepath);
-    } catch (e) {
-      print('❌ Upload failed: $e');
-      rethrow;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(widget.drug == null ? 'Tambah Data Narkotika' : 'Edit Data Narkotika'),
-      content: SizedBox(
-        width: 500,
-        child: SingleChildScrollView(
-          child: Column(
+      content: SingleChildScrollView(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -990,26 +854,26 @@ class _DrugDialogState extends State<_DrugDialog> {
             ),
             const SizedBox(height: 8),
 
-            // Gallery mode selector
             Row(
               children: [
                 Expanded(
                   child: RadioListTile<String>(
-                    title: const Text('URL', style: TextStyle(fontSize: 14)),
+                    title: const Text('URL'),
                     value: 'url',
                     groupValue: _imageMode,
                     onChanged: (value) {
                       setState(() {
                         _imageMode = value!;
                         _selectedImage = null;
-                        _selectedImageBytes = null;
                       });
                     },
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
                   ),
                 ),
                 Expanded(
                   child: RadioListTile<String>(
-                    title: const Text('Galeri', style: TextStyle(fontSize: 14)),
+                    title: const Text('Galeri'),
                     value: 'gallery',
                     groupValue: _imageMode,
                     onChanged: (value) {
@@ -1017,6 +881,8 @@ class _DrugDialogState extends State<_DrugDialog> {
                         _imageMode = value!;
                       });
                     },
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
                   ),
                 ),
               ],
@@ -1065,7 +931,7 @@ class _DrugDialogState extends State<_DrugDialog> {
                   foregroundColor: Colors.white,
                 ),
               ),
-              if (_selectedImageBytes != null) ...[
+              if (_selectedImage != null) ...[
                 const SizedBox(height: 8),
                 Container(
                   width: double.infinity,
@@ -1076,8 +942,8 @@ class _DrugDialogState extends State<_DrugDialog> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.memory(
-                      _selectedImageBytes!,
+                    child: Image.file(
+                      _selectedImage!,
                       fit: BoxFit.cover,
                     ),
                   ),
@@ -1085,7 +951,6 @@ class _DrugDialogState extends State<_DrugDialog> {
               ],
             ],
           ],
-          ),
         ),
       ),
       actions: [
@@ -1094,7 +959,7 @@ class _DrugDialogState extends State<_DrugDialog> {
           child: const Text('Batal'),
         ),
         TextButton(
-          onPressed: _isUploading ? null : () async {
+          onPressed: () {
             if (_nameController.text.isEmpty ||
                 _descriptionController.text.isEmpty ||
                 _categoryController.text.isEmpty ||
@@ -1107,52 +972,13 @@ class _DrugDialogState extends State<_DrugDialog> {
 
             String imageUrl = _imageUrlController.text;
             if (_imageMode == 'gallery' && _selectedImage != null) {
-              setState(() => _isUploading = true);
-              
-              // Show uploading notification
+              imageUrl = _selectedImage!.path;
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Row(
-                    children: [
-                      SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      ),
-                      SizedBox(width: 12),
-                      Text('Mengupload gambar...'),
-                    ],
-                  ),
-                  duration: Duration(seconds: 2),
+                  content: Text('Note: Gambar dari galeri belum terupload ke server. Implementasikan Supabase Storage untuk production.'),
+                  duration: Duration(seconds: 3),
                 ),
               );
-              
-              try {
-                imageUrl = await _uploadImageToStorage(_selectedImage!, 'drugs') ?? '';
-                setState(() => _isUploading = false);
-                
-                // Show success notification
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(' Gambar berhasil diupload'),
-                      backgroundColor: Colors.green,
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                }
-              } catch (e) {
-                setState(() => _isUploading = false);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Gagal upload gambar: $e')),
-                  );
-                }
-                return;
-              }
             }
 
             final drug = DrugModel(
@@ -1171,13 +997,7 @@ class _DrugDialogState extends State<_DrugDialog> {
             Navigator.pop(context);
             widget.onSave(drug);
           },
-          child: _isUploading 
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(widget.drug == null ? 'Tambah' : 'Simpan'),
+          child: Text(widget.drug == null ? 'Tambah' : 'Simpan'),
         ),
       ],
     );

@@ -58,6 +58,18 @@ dependencies:
   
   # Image picker for profile photo
   image_picker: ^1.0.7
+  
+  # PDF generation for reports
+  pdf: ^3.11.1
+  
+  # Path provider for file storage
+  path_provider: ^2.1.4
+  
+  # Share files functionality
+  share_plus: ^10.1.2
+  
+  # Universal IO for cross-platform file operations
+  universal_io: ^2.2.2
 
 dev_dependencies:
   flutter_test:
