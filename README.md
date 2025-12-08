@@ -51,13 +51,14 @@ Menyediakan platform yang reliable untuk:
 10. **Help Center** - FAQ & kontak darurat
 11. **Profile** - Settings & info akun user
 
-### Admin Screens (6 total)
+### Admin Screens (7 total)
 1. **Admin Login** - Autentikasi admin (demo: `admin`/`admin123`)
 2. **Dashboard** - Statistik overview (users, articles, quizzes, daily access)
-3. **Content Management** - CRUD artikel & katalog narkotika
+3. **Content Management** - CRUD artikel & katalog narkotika dengan image upload
 4. **User Management** - Kelola user (block/unblock, view activity)
-5. **Quiz Management** - CRUD quiz questions dengan bobot
+5. **Quiz Management** - CRUD quiz questions dengan bobot (0-100)
 6. **Emergency Management** - CRUD kontak darurat
+7. **Analytics & Reports** - Laporan lengkap dengan export PDF/CSV
 
 ## 🎨 Design System
 
@@ -117,7 +118,11 @@ lib/
 │       └── emergency_management_screen.dart # Kelola kontak darurat
 │
 ├── services/           # Business logic & API
-│   └── (kosong - untuk integrasi Hive & API)
+│   ├── auth_service.dart         # Authentication with Supabase
+│   ├── article_service.dart      # Article CRUD & read tracking
+│   ├── quiz_service.dart         # Quiz management & results
+│   ├── pdf_export_service.dart   # PDF generation for reports
+│   └── csv_export_service.dart   # CSV export for analytics
 │
 ├── widgets/            # Reusable widgets
 │   └── (kosong - untuk custom widgets)
@@ -287,14 +292,85 @@ flutter run
 
 ## 📊 Project Statistics
 
-- **Total Files**: 32
-  - 25 Screens (11 user + 6 admin + 8 shared)
-  - 4 Models (User, Drug, Article, Quiz)
+- **Total Files**: 38+
+  - 17 User Screens
+  - 7 Admin Screens (Dashboard, Content, Users, Quiz, Emergency, Analytics)
+  - 5 Models (User, Drug, Article, Quiz, EmergencyContact)
+  - 8 Services (Auth, Article, Quiz, PDF Export, CSV Export, etc.)
   - 2 Constants (Colors, TextStyles)
   - 1 Main entry point
-- **Lines of Code**: ~3500+ LOC
+- **Lines of Code**: ~12,000+ LOC
 - **Flutter SDK**: 3.9.2+
-- **Last Updated**: December 2, 2025
+- **Database**: Supabase (PostgreSQL)
+- **Last Updated**: December 8, 2024
+
+## 🆕 Recent Updates (December 2024)
+
+### ✅ Major Features Added
+
+#### 1. **Supabase Backend Integration**
+- PostgreSQL database with Row Level Security (RLS)
+- Real-time data synchronization
+- Secure authentication system
+- Cloud storage for images (banners, articles, drugs)
+
+#### 2. **Analytics Dashboard & Reporting**
+- 📊 **Real-time Statistics**:
+  - Total users & active users
+  - Quiz attempts and average scores
+  - Articles read tracking
+  - Engagement rate metrics
+- 📄 **PDF Export**: Professional analytics reports with charts and tables
+- 📊 **CSV Export**: Data export for external analysis
+- 📈 **Activity Tracking**: User engagement metrics
+
+#### 3. **Home Screen Enhancements**
+- 🎨 **Manual Swipe Banner Carousel**:
+  - 3 educational banners from Supabase Storage
+  - Smooth page transitions
+  - Animated dot indicators
+  - Responsive image loading
+- 📌 **Sticky Header**: Logo and notifications always visible
+- ♻️ **Pull-to-Refresh**: Refresh content with swipe gesture
+
+#### 4. **Article Read Tracking**
+- ✅ Automatic tracking when users read articles
+- 📖 Read history with timestamps
+- 📊 Analytics integration (articles_read counter)
+- 🔄 Backfill script for existing data
+
+#### 5. **Quiz Management Improvements**
+- ⚖️ **Weight System**: Configurable question weights (0-100)
+- 🎯 **Flexible Scoring**: Custom weight for better risk assessment
+- 🔧 **Admin Controls**: Easy quiz question management
+- 📊 **Result Details**: Enhanced quiz result visualization
+
+### 🐛 Bug Fixes & Improvements
+
+#### Database & Backend
+- ✅ Fixed `setState` after dispose errors in async functions
+- ✅ Added `mounted` checks for all async setState calls
+- ✅ Fixed quiz results constraint violations
+- ✅ Corrected column name mappings (snake_case vs camelCase)
+- ✅ Fixed articles_read counter tracking
+
+#### UI/UX
+- ✅ Fixed CORS issues for banner images (moved to Supabase Storage)
+- ✅ Improved PDF generation with correct data mapping
+- ✅ Enhanced error handling and user feedback
+- ✅ Better loading states and error messages
+
+#### Admin Panel
+- ✅ Real-time analytics data updates
+- ✅ Fixed PDF export formatting
+- ✅ Corrected quiz result data display
+- ✅ Enhanced user management features
+
+### 🔧 Technical Improvements
+- Database migrations for schema updates
+- SQL scripts for data backfill and maintenance
+- Improved state management with proper lifecycle handling
+- Better error logging and debugging information
 
 ## 📄 License
 
