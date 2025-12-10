@@ -76,6 +76,476 @@ Menyediakan platform yang reliable untuk:
 - Headings: Bold 32/24/20/18/16 (h1-h5)
 - Body: Regular/Medium 16/14/12
 
+## 🔄 Data Flow Diagram
+
+### Arsitektur Data Aplikasi
+
+Aplikasi ini menggunakan **arsitektur 3-layer** dengan Supabase sebagai backend:
+
+```mermaid
+graph TB
+    subgraph "Layer 1: UI (Screens)"
+        A[User Screens]
+        B[Admin Screens]
+    end
+    
+    subgraph "Layer 2: Business Logic (Services)"
+        C[AuthService]
+        D[ArticleService]
+        E[QuizService]
+        F[DrugService]
+        G[NotificationService]
+        H[PDFExportService]
+        I[CSVExportService]
+    end
+    
+    subgraph "Layer 3: Backend (Supabase)"
+        J[(PostgreSQL Database)]
+        K[Supabase Auth]
+        L[Supabase Storage]
+        M[Real-time Subscriptions]
+    end
+    
+    A --> C
+    A --> D
+    A --> E
+    A --> F
+    A --> G
+    
+    B --> C
+    B --> D
+    B --> E
+    B --> F
+    B --> H
+    B --> I
+    
+    C --> K
+    C --> J
+    D --> J
+    D --> L
+    E --> J
+    F --> J
+    F --> L
+    G --> J
+    G --> M
+    H --> J
+    I --> J
+```
+
+### Flow Data Per Fitur
+
+#### 1️⃣ **Authentication Flow**
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant LS as LoginScreen
+    participant AS as AuthService
+    participant SA as Supabase Auth
+    participant DB as Database (users table)
+    participant HS as HomeScreen
+    
+    U->>LS: Input email & password
+    LS->>AS: signIn(email, password)
+    AS->>SA: signInWithPassword()
+    SA-->>AS: AuthResponse (user + session)
+    AS->>DB: Verifikasi user profile
+    DB-->>AS: User data
+    AS-->>LS: Login berhasil
+    LS->>HS: Navigate ke Home
+    HS->>AS: getCurrentUser()
+    AS-->>HS: UserModel
+    HS->>U: Tampilkan dashboard
+```
+
+**Penjelasan:**
+1. User input credentials di `LoginScreen`
+2. `LoginScreen` memanggil `AuthService.signIn()`
+3. `AuthService` berkomunikasi dengan Supabase Auth untuk autentikasi
+4. Jika berhasil, session disimpan otomatis oleh Supabase SDK
+5. Data user profile diambil dari tabel `users`
+6. User diarahkan ke `HomeScreen` dengan data user
+
+---
+
+#### 2️⃣ **Article Reading Flow**
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant CS as CatalogScreen
+    participant DS as DetailScreen
+    participant ARS as ArticleService
+    participant DB as Database
+    participant ST as Supabase Storage
+    
+    U->>CS: Buka Katalog
+    CS->>ARS: getAllArticles()
+    ARS->>DB: SELECT * FROM articles
+    DB-->>ARS: List<Article>
+    ARS-->>CS: List<ArticleModel>
+    CS->>U: Tampilkan list artikel
+    
+    U->>DS: Klik artikel
+    DS->>ARS: getArticleById(id)
+    ARS->>DB: SELECT WHERE id = ?
+    DB-->>ARS: Article data
+    ARS-->>DS: ArticleModel
+    
+    DS->>ARS: trackArticleRead(articleId)
+    ARS->>DB: INSERT INTO read_history
+    ARS->>DB: UPDATE users SET articles_read+1
+    
+    DS->>ST: Load image_url
+    ST-->>DS: Image data
+    DS->>U: Tampilkan artikel lengkap
+```
+
+**Penjelasan:**
+1. `CatalogScreen` memuat semua artikel dari database via `ArticleService`
+2. User memilih artikel, navigasi ke `DetailScreen`
+3. `DetailScreen` memuat detail artikel berdasarkan ID
+4. Saat artikel dibuka, tracking otomatis:
+   - Simpan ke `read_history` (hanya sekali per artikel per user)
+   - Increment counter `articles_read` di tabel `users`
+5. Gambar dimuat dari Supabase Storage
+6. Konten artikel ditampilkan ke user
+
+---
+
+#### 3️⃣ **Quiz Assessment Flow**
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant QS as QuizScreen
+    participant RS as ResultScreen
+    participant QZS as QuizService
+    participant DB as Database
+    participant HS as HistoryScreen
+    
+    U->>QS: Mulai Quiz
+    QS->>QZS: getAllQuestions()
+    QZS->>DB: SELECT * FROM quizzes ORDER BY order_index
+    DB-->>QZS: List<QuizQuestion>
+    QZS-->>QS: List dengan weight
+    QS->>U: Tampilkan pertanyaan
+    
+    U->>QS: Jawab semua pertanyaan
+    QS->>QS: calculateScore(answers, weights)
+    QS->>QS: determineRiskLevel(totalScore)
+    
+    QS->>QZS: saveQuizResult(result)
+    QZS->>DB: INSERT INTO quiz_results
+    QZS->>DB: UPDATE users SET quizzes_taken+1
+    DB-->>QZS: Success
+    
+    QS->>RS: Navigate dengan QuizResult
+    RS->>U: Tampilkan hasil & rekomendasi
+    
+    U->>HS: Lihat Riwayat
+    HS->>QZS: getUserQuizHistory(userId)
+    QZS->>DB: SELECT WHERE user_id = ?
+    DB-->>QZS: List<QuizResult>
+    QZS-->>HS: History
+    HS->>U: Tampilkan riwayat quiz
+```
+
+**Penjelasan:**
+1. User memulai quiz dari `QuizScreen`
+2. Questions dimuat dari database dengan `weight` untuk scoring
+3. User menjawab 5 pertanyaan
+4. Sistem menghitung:
+   - **Total Score**: Sum of (answer_value × question_weight)
+   - **Risk Level**: Berdasarkan threshold (Rendah/Sedang/Tinggi)
+5. Hasil disimpan ke `quiz_results` table
+6. Counter `quizzes_taken` di tabel `users` bertambah
+7. Hasil ditampilkan di `ResultScreen` dengan visualisasi
+8. User bisa melihat history di `HistoryScreen`
+
+---
+
+#### 4️⃣ **Admin Content Management Flow**
+
+```mermaid
+sequenceDiagram
+    participant A as Admin
+    participant CMS as ContentManagementScreen
+    participant ARS as ArticleService
+    participant DS as DrugService
+    participant DB as Database
+    participant ST as Supabase Storage
+    
+    A->>CMS: Tambah Artikel Baru
+    CMS->>A: Form input
+    A->>CMS: Upload image
+    CMS->>ST: Upload ke bucket 'articles'
+    ST-->>CMS: Public URL
+    
+    A->>CMS: Submit article data
+    CMS->>ARS: addArticle(ArticleModel)
+    ARS->>DB: INSERT INTO articles
+    DB-->>ARS: Success (with ID)
+    ARS-->>CMS: Artikel tersimpan
+    CMS->>A: Refresh list
+    
+    Note over A,ST: Update & Delete flow serupa
+    
+    A->>CMS: Edit Drug Info
+    CMS->>DS: updateDrug(DrugModel)
+    DS->>DB: UPDATE drugs WHERE id = ?
+    DB-->>DS: Success
+    DS-->>CMS: Update berhasil
+    CMS->>A: Tampilkan data terbaru
+```
+
+**Penjelasan:**
+1. Admin login ke panel admin
+2. Untuk menambah artikel:
+   - Upload gambar ke Supabase Storage
+   - Dapatkan public URL
+   - Simpan artikel dengan URL gambar ke database
+3. CRUD operations (Create, Read, Update, Delete) untuk:
+   - Articles (`articles` table)
+   - Drugs (`drugs` table)
+   - Quiz Questions (`quizzes` table)
+   - Emergency Contacts (`emergency_contacts` table)
+4. Semua perubahan langsung tersimpan ke database
+5. UI otomatis refresh untuk menampilkan data terbaru
+
+---
+
+#### 5️⃣ **Analytics & Reports Flow**
+
+```mermaid
+sequenceDiagram
+    participant A as Admin
+    participant AS as AnalyticsScreen
+    participant PDF as PDFExportService
+    participant CSV as CSVExportService
+    participant DB as Database
+    participant FS as File System
+    
+    A->>AS: Buka Analytics
+    AS->>DB: Query statistics
+    DB-->>AS: Data (users, quizzes, articles)
+    AS->>A: Tampilkan dashboard
+    
+    A->>AS: Export PDF
+    AS->>PDF: generateReport(data)
+    PDF->>PDF: Build PDF dengan pw package
+    PDF->>FS: Save ke Downloads
+    FS-->>PDF: File path
+    PDF->>A: Share/Download file
+    
+    A->>AS: Export CSV
+    AS->>CSV: exportToCSV(data)
+    CSV->>CSV: Format data ke CSV
+    CSV->>FS: Save ke Downloads
+    FS-->>CSV: File path
+    CSV->>A: Share/Download file
+```
+
+**Penjelasan:**
+1. Admin membuka `AnalyticsScreen`
+2. Data statistik dimuat dari berbagai tabel:
+   - Total users & active users
+   - Quiz attempts & average scores
+   - Articles read count
+   - Engagement metrics
+3. Admin bisa export data dalam 2 format:
+   - **PDF**: Report profesional dengan charts dan tabel
+   - **CSV**: Data mentah untuk analisis external
+4. File disimpan ke Downloads folder
+5. User bisa share atau download file
+
+---
+
+#### 6️⃣ **Real-time Notifications Flow**
+
+```mermaid
+sequenceDiagram
+    participant A as Admin
+    participant DB as Database
+    participant RT as Realtime Subscription
+    participant NS as NotificationService
+    participant HS as HomeScreen
+    participant U as User
+    
+    A->>DB: INSERT notification (new article)
+    DB->>RT: Broadcast change
+    RT->>NS: onInsert event
+    NS->>HS: Update notification count
+    HS->>U: Badge dengan angka unread
+    
+    U->>HS: Klik notifikasi
+    HS->>NS: getNotifications()
+    NS->>DB: SELECT WHERE user_id = ?
+    DB-->>NS: List<Notification>
+    NS-->>HS: Notifications
+    HS->>U: Tampilkan list
+    
+    U->>HS: Klik salah satu
+    HS->>NS: markAsRead(notificationId)
+    NS->>DB: UPDATE is_read = true
+    DB->>RT: Broadcast change
+    RT->>NS: Update
+    NS->>HS: Update count
+    HS->>U: Badge berkurang
+```
+
+**Penjelasan:**
+1. Admin membuat konten baru (artikel, drug info, dll)
+2. System otomatis insert notifikasi ke database
+3. **Realtime subscription** mendeteksi perubahan
+4. `NotificationService` menerima event dan update UI
+5. Badge notifikasi di `HomeScreen` update otomatis
+6. User bisa:
+   - Lihat semua notifikasi
+   - Mark as read (individual atau all)
+   - Navigate ke konten terkait
+7. Unread count update real-time tanpa refresh
+
+---
+
+### Database Schema Overview
+
+```mermaid
+erDiagram
+    USERS ||--o{ QUIZ_RESULTS : takes
+    USERS ||--o{ READ_HISTORY : reads
+    USERS ||--o{ BOOKMARKS : saves
+    USERS ||--o{ NOTIFICATIONS : receives
+    ARTICLES ||--o{ READ_HISTORY : tracks
+    ARTICLES ||--o{ BOOKMARKS : bookmarked_by
+    QUIZZES ||--o{ QUIZ_RESULTS : answered_in
+    
+    USERS {
+        uuid id PK
+        string name
+        string email
+        int quizzes_taken
+        int articles_read
+        int saved_items
+        timestamp created_at
+    }
+    
+    ARTICLES {
+        uuid id PK
+        string title
+        text content
+        string category
+        string image_url
+        int read_count
+        timestamp created_at
+    }
+    
+    DRUGS {
+        uuid id PK
+        string name
+        string other_names
+        string category
+        text description
+        jsonb effects
+        jsonb dangers
+        string risk_level
+        string image_url
+    }
+    
+    QUIZZES {
+        uuid id PK
+        string question
+        jsonb options
+        int order_index
+        int weight
+    }
+    
+    QUIZ_RESULTS {
+        uuid id PK
+        uuid user_id FK
+        int total_score
+        string risk_level
+        jsonb answers
+        timestamp completed_at
+    }
+    
+    READ_HISTORY {
+        uuid id PK
+        uuid user_id FK
+        uuid article_id FK
+        timestamp read_at
+    }
+    
+    BOOKMARKS {
+        uuid id PK
+        uuid user_id FK
+        uuid article_id FK
+        timestamp created_at
+    }
+    
+    NOTIFICATIONS {
+        uuid id PK
+        uuid user_id FK
+        string title
+        text message
+        boolean is_read
+        timestamp created_at
+    }
+    
+    EMERGENCY_CONTACTS {
+        uuid id PK
+        string name
+        string phone
+        string category
+        text description
+    }
+```
+
+### Teknologi Stack
+
+| Layer | Teknologi | Fungsi |
+|-------|-----------|--------|
+| **Frontend** | Flutter | UI Framework cross-platform |
+| **State Management** | StatefulWidget | Local state untuk screens |
+| **Backend** | Supabase | Backend-as-a-Service |
+| **Database** | PostgreSQL | Relational database |
+| **Authentication** | Supabase Auth | User authentication & session |
+| **Storage** | Supabase Storage | Cloud storage untuk images |
+| **Real-time** | Supabase Realtime | WebSocket subscriptions |
+| **Export** | pdf, csv packages | Generate reports |
+
+### Data Persistence
+
+1. **Session Management**:
+   - Supabase SDK automatically handles session persistence
+   - Session stored securely di SharedPreferences
+   - Auto-refresh token sebelum expired
+
+2. **Offline Capability**:
+   - Saat ini: Online-only (requires internet)
+   - Future: Implementasi caching dengan Hive/SQLite
+
+3. **Image Caching**:
+   - Images dari Supabase Storage di-cache otomatis oleh Flutter
+   - Cache invalidation based on URL changes
+
+### Security Measures
+
+1. **Row Level Security (RLS)** di Supabase:
+   - Users hanya bisa read/write data milik sendiri
+   - Admin policies untuk content management
+   
+2. **Authentication**:
+   - JWT tokens untuk session
+   - Secure password hashing
+   - Email verification (optional)
+
+3. **API Security**:
+   - Supabase Anon Key untuk public access
+   - Service Role Key (tidak ada di client) untuk admin ops
+
+---
+
 ## 🏗️ Struktur Folder
 
 ```
