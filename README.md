@@ -514,6 +514,122 @@ erDiagram
 | **Real-time** | Supabase Realtime | WebSocket subscriptions |
 | **Export** | pdf, csv packages | Generate reports |
 
+### State Management Approach
+
+Aplikasi ini menggunakan **StatefulWidget** (built-in Flutter state management) tanpa library eksternal.
+
+#### Implementasi Pattern
+
+```dart
+class HomeScreen extends StatefulWidget {
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  // Local state variables
+  bool _isLoading = true;
+  List<ArticleModel> _articles = [];
+  UserModel? _user;
+  int _unreadNotifications = 0;
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+  
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    
+    // Direct service calls
+    final articles = await ArticleService().getAllArticles();
+    final user = await AuthService().getCurrentUser();
+    
+    // Check if widget still mounted before setState
+    if (mounted) {
+      setState(() {
+        _articles = articles;
+        _user = user;
+        _isLoading = false;
+      });
+    }
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) return CircularProgressIndicator();
+    return ListView(children: _buildArticleCards());
+  }
+}
+```
+
+#### State Flow
+
+```mermaid
+graph LR
+    A[User Action] --> B[Event Handler]
+    B --> C[Service Call]
+    C --> D[setState]
+    D --> E[UI Rebuild]
+    
+    style A fill:#e3f2fd
+    style E fill:#c8e6c9
+```
+
+**Contoh konkret:**
+```
+Tap Article → _onArticleTap() → ArticleService.trackRead() → setState() → build()
+```
+
+#### Karakteristik
+
+| Aspek | Detail |
+|-------|--------|
+| **Pattern** | StatefulWidget + setState() |
+| **Scope** | Local (per-screen) |
+| **Data Fetching** | Direct service calls di `initState()` |
+| **Updates** | `setState()` untuk trigger rebuild |
+| **Navigation** | Navigator.push/pop dengan data passing |
+| **Session** | Auto-persist via Supabase SDK |
+| **Async Safety** | `mounted` check sebelum setState |
+
+#### ✅ Kelebihan
+
+- **Simple & Straightforward**: Tidak perlu setup library eksternal
+- **Easy to Learn**: Cocok untuk pemula Flutter
+- **Less Boilerplate**: Minimal code overhead
+- **Built-in**: Native Flutter, zero dependencies
+- **Perfect for Edu**: Ideal untuk project pembelajaran
+
+#### ⚠️ Kekurangan
+
+- **No Global State**: Data harus di-fetch ulang per screen
+- **Prop Drilling**: Passing data via constructor parameters
+- **Full Rebuilds**: Entire widget tree rebuilds on setState
+- **Limited Scalability**: Tidak ideal untuk app sangat kompleks
+
+#### 🔄 Alternative untuk Scaling
+
+Jika aplikasi berkembang lebih besar, consider:
+
+1. **Provider** (recommended): 
+   - Simple global state management
+   - Minimal learning curve
+   - `flutter pub add provider`
+
+2. **Riverpod**: 
+   - Modern, compile-safe Provider
+   - Better testing support
+   - `flutter pub add flutter_riverpod`
+
+3. **Bloc**: 
+   - Event-driven architecture
+   - Strict separation of concerns
+   - `flutter pub add flutter_bloc`
+
+> **Note**: Untuk project scope saat ini (edukasi narkotika dengan ~20 screens), StatefulWidget sudah sangat cukup dan maintainable.
+
 ### Data Persistence
 
 1. **Session Management**:
